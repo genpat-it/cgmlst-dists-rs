@@ -50,9 +50,21 @@ struct Args {
     #[arg(short = 'r', long, default_value_t = false)]
     skip_input_replacements: bool,
 
+    /// Keep only loci with at least this % of non-missing calls (0-100)
+    #[arg(short = 'L', long)]
+    locus_completeness: Option<f64>,
+
+    /// Keep only samples with at least this % of non-missing calls (0-100)
+    #[arg(short = 'S', long)]
+    sample_completeness: Option<f64>,
+
     /// Stop counting beyond this distance (early-exit; 0 = no cap)
     #[arg(short = 'X', long, default_value_t = 0)]
     max_dist: i32,
+
+    /// Skip the up-front memory feasibility check
+    #[arg(short = 'f', long, default_value_t = false)]
+    force: bool,
 
     /// Suppress progress/log messages on stderr
     #[arg(short = 's', long, default_value_t = false)]
@@ -82,7 +94,6 @@ fn parse_allele(cell: &str, skip_repl: bool, missing: &str) -> i32 {
     if s == missing || s.is_empty() {
         return 0;
     }
-    // Only accept pure ASCII digits (mirrors `^[0-9]+$`); otherwise 0.
     if s.bytes().all(|b| b.is_ascii_digit()) {
         s.parse::<i32>().unwrap_or(0)
     } else {
@@ -90,8 +101,8 @@ fn parse_allele(cell: &str, skip_repl: bool, missing: &str) -> i32 {
     }
 }
 
-/// Hamming distance between two allele profiles: count loci where the alleles
-/// differ and both are present (non-zero). Optional early-exit at `max_dist`.
+/// Hamming distance: count loci where alleles differ and both are present
+/// (non-zero). Optional early-exit at `max_dist`.
 #[inline]
 fn distance(a: &[i32], b: &[i32], max_dist: i32) -> i32 {
     let mut d: i32 = 0;
@@ -116,6 +127,18 @@ fn read_input(path: &str) -> io::Result<String> {
         File::open(path)?.read_to_string(&mut buf)?;
     }
     Ok(buf)
+}
+
+/// Linux: available memory in bytes (MemAvailable from /proc/meminfo).
+fn available_memory_bytes() -> Option<u64> {
+    let s = std::fs::read_to_string("/proc/meminfo").ok()?;
+    for line in s.lines() {
+        if let Some(rest) = line.strip_prefix("MemAvailable:") {
+            let kb: u64 = rest.trim().trim_end_matches("kB").trim().parse().ok()?;
+            return Some(kb * 1024);
+        }
+    }
+    None
 }
 
 fn main() {
@@ -154,70 +177,131 @@ fn main() {
             std::process::exit(1);
         }
     };
-    let n_loci = header.split(sep_ch).count() - 1;
+    let mut n_loci = header.split(sep_ch).count() - 1;
 
-    // Collect data lines, then parse rows in parallel.
     let data_lines: Vec<&str> = lines.filter(|l| !l.is_empty()).collect();
-    let n = data_lines.len();
+    let mut n = data_lines.len();
 
     let skip_repl = args.skip_input_replacements;
     let missing = args.missing_char.as_str();
 
-    let parsed: Vec<(usize, &str, Vec<i32>)> = data_lines
+    let parsed: Vec<(&str, Vec<i32>)> = data_lines
         .par_iter()
-        .enumerate()
-        .map(|(row, line)| {
+        .map(|line| {
             let mut it = line.split(sep_ch);
             let id = it.next().unwrap_or("");
             let mut calls = Vec::with_capacity(n_loci);
             for cell in it {
                 calls.push(parse_allele(cell, skip_repl, missing));
             }
-            // Pad/truncate defensively to n_loci
             calls.resize(n_loci, 0);
-            (row, id, calls)
+            (id, calls)
         })
         .collect();
 
-    let ids: Vec<&str> = parsed.iter().map(|(_, id, _)| *id).collect();
-    // Flat row-major matrix of calls for cache-friendly access.
+    let mut ids: Vec<&str> = parsed.iter().map(|(id, _)| *id).collect();
     let mut calls = vec![0i32; n * n_loci];
-    for (row, _, c) in &parsed {
+    for (row, (_, c)) in parsed.iter().enumerate() {
         calls[row * n_loci..(row + 1) * n_loci].copy_from_slice(c);
     }
     drop(parsed);
-    let load_secs = t_load.elapsed().as_secs_f64();
     if !args.silent {
-        eprintln!("Loaded {} samples x {} loci in {:.2}s", n, n_loci, load_secs);
+        eprintln!("Loaded {} samples x {} loci in {:.2}s", n, n_loci, t_load.elapsed().as_secs_f64());
     }
 
-    // ---- Compute (upper triangle, parallel over rows) ----
+    // ---- Completeness filtering (present = non-zero call) ----
+    if let Some(thr) = args.locus_completeness {
+        let keep: Vec<usize> = (0..n_loci)
+            .into_par_iter()
+            .filter(|&k| {
+                let present = (0..n).filter(|&i| calls[i * n_loci + k] != 0).count();
+                (present as f64 / n as f64) * 100.0 >= thr
+            })
+            .collect();
+        if keep.len() != n_loci {
+            let mut nc = vec![0i32; n * keep.len()];
+            nc.par_chunks_mut(keep.len()).enumerate().for_each(|(i, row)| {
+                for (dst, &k) in keep.iter().enumerate() {
+                    row[dst] = calls[i * n_loci + k];
+                }
+            });
+            calls = nc;
+            n_loci = keep.len();
+        }
+        if !args.silent {
+            eprintln!("Locus completeness >= {}%: kept {} loci", thr, n_loci);
+        }
+    }
+
+    if let Some(thr) = args.sample_completeness {
+        let keep: Vec<usize> = (0..n)
+            .into_par_iter()
+            .filter(|&i| {
+                let present = calls[i * n_loci..(i + 1) * n_loci].iter().filter(|&&v| v != 0).count();
+                (present as f64 / n_loci as f64) * 100.0 >= thr
+            })
+            .collect();
+        if keep.len() != n {
+            let mut nc = vec![0i32; keep.len() * n_loci];
+            let mut nids = Vec::with_capacity(keep.len());
+            for (dst, &i) in keep.iter().enumerate() {
+                nc[dst * n_loci..(dst + 1) * n_loci].copy_from_slice(&calls[i * n_loci..(i + 1) * n_loci]);
+                nids.push(ids[i]);
+            }
+            calls = nc;
+            ids = nids;
+            n = keep.len();
+        }
+        if !args.silent {
+            eprintln!("Sample completeness >= {}%: kept {} samples", thr, n);
+        }
+    }
+
+    // ---- Memory feasibility guard (upper-triangle storage) ----
+    let tri = (n as u64) * (n.saturating_sub(1) as u64) / 2;
+    let need_bytes = tri.saturating_mul(4);
+    if !args.force {
+        if let Some(avail) = available_memory_bytes() {
+            if need_bytes as f64 > 0.85 * avail as f64 {
+                eprintln!(
+                    "\nERROR: not enough memory.\n  {} samples -> upper-triangle matrix ~{:.1} GiB, available ~{:.1} GiB.\n  Aborting before computation. Use --force to try anyway, or reduce samples.",
+                    n,
+                    need_bytes as f64 / 1024f64.powi(3),
+                    avail as f64 / 1024f64.powi(3)
+                );
+                std::process::exit(1);
+            }
+        }
+    }
+
+    // ---- Compute upper triangle (jagged, parallel over rows) ----
     let t_calc = Instant::now();
     let max_dist = args.max_dist;
-    let mut dist = vec![0i32; n * n];
-    // Fill upper triangle: dist[i*n + j] for j > i. Each row is written by one
-    // task; distances are symmetric so the lower triangle is read from the
-    // upper one at output time (no separate mirror pass, no aliasing).
-    dist.par_chunks_mut(n).enumerate().for_each(|(i, row)| {
-        let ai = &calls[i * n_loci..(i + 1) * n_loci];
-        for j in (i + 1)..n {
-            let aj = &calls[j * n_loci..(j + 1) * n_loci];
-            row[j] = distance(ai, aj, max_dist);
-        }
-    });
-    let calc_secs = t_calc.elapsed().as_secs_f64();
+    // upper[i] holds distances to j = i+1 .. n-1 (length n-1-i).
+    let upper: Vec<Vec<i32>> = (0..n)
+        .into_par_iter()
+        .map(|i| {
+            let ai = &calls[i * n_loci..(i + 1) * n_loci];
+            let mut row = Vec::with_capacity(n - 1 - i.min(n - 1));
+            for j in (i + 1)..n {
+                let aj = &calls[j * n_loci..(j + 1) * n_loci];
+                row.push(distance(ai, aj, max_dist));
+            }
+            row
+        })
+        .collect();
     if !args.silent {
-        eprintln!("Computed {} x {} matrix in {:.2}s", n, n, calc_secs);
+        eprintln!("Computed {} x {} matrix in {:.2}s", n, n, t_calc.elapsed().as_secs_f64());
     }
 
-    // symmetric lookup: value at (i, j)
+    // symmetric lookup
     let at = |i: usize, j: usize| -> i32 {
         if i == j {
             0
         } else if j > i {
-            dist[i * n + j]
+            upper[i][j - i - 1]
         } else {
-            dist[j * n + i]
+            upper[j][i - j - 1]
         }
     };
 
@@ -233,7 +317,6 @@ fn main() {
     };
     let mut out = BufWriter::with_capacity(16 * 1024 * 1024, writer);
 
-    // Header
     out.write_all(args.index_name.as_bytes()).unwrap();
     for id in &ids {
         out.write_all(osep).unwrap();
@@ -248,36 +331,20 @@ fn main() {
             out.write_all(osep).unwrap();
             let v = match args.matrix_format {
                 MatrixFormat::Full => at(i, j),
-                MatrixFormat::LowerTri => {
-                    if j <= i {
-                        at(i, j)
-                    } else {
-                        0
-                    }
-                }
-                MatrixFormat::UpperTri => {
-                    if j >= i {
-                        at(i, j)
-                    } else {
-                        0
-                    }
-                }
+                MatrixFormat::LowerTri => if j <= i { at(i, j) } else { 0 },
+                MatrixFormat::UpperTri => if j >= i { at(i, j) } else { 0 },
             };
             out.write_all(ibuf.format(v).as_bytes()).unwrap();
         }
         out.write_all(b"\n").unwrap();
     }
     out.flush().unwrap();
-    let save_secs = t_save.elapsed().as_secs_f64();
 
     if !args.silent {
         eprintln!(
-            "Wrote output in {:.2}s. Total {:.2}s (load {:.2} / calc {:.2} / save {:.2})",
-            save_secs,
-            t_start.elapsed().as_secs_f64(),
-            load_secs,
-            calc_secs,
-            save_secs
+            "Wrote output in {:.2}s. Total {:.2}s",
+            t_save.elapsed().as_secs_f64(),
+            t_start.elapsed().as_secs_f64()
         );
     }
 }
