@@ -1,0 +1,21 @@
+[package]
+name = "cgmlst-dists-rs"
+version = "0.1.0"
+edition = "2021"
+description = "Ultra-fast pairwise Hamming distance matrix for cgMLST allele call tables (Rust port of cgmlst-dists-py)"
+license = "GPL-3.0-only"
+
+[[bin]]
+name = "cgmlst-dists"
+path = "src/main.rs"
+
+[dependencies]
+rayon = "1"
+clap = { version = "4", features = ["derive"] }
+itoa = "1"
+
+[profile.release]
+opt-level = 3
+lto = true
+codegen-units = 1
+panic = "abort"
