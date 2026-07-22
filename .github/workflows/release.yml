@@ -9,7 +9,20 @@ env:
   IMAGE_NAME: ${{ github.repository }}
 
 jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build & test
+        run: cargo test --release --verbose
+      - name: Smoke test
+        run: |
+          cargo build --release
+          printf 'FILE\tL1\tL2\tL3\nA\t1\t2\t3\nB\t1\t5\t3\nC\t4\t2\t3\n' > /tmp/in.tab
+          ./target/release/cgmlst-dists -i /tmp/in.tab
+
   docker:
+    needs: test
     runs-on: ubuntu-latest
     permissions:
       contents: read

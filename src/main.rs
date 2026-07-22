@@ -348,3 +348,41 @@ fn main() {
         );
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn parse_semantics() {
+        assert_eq!(parse_allele("5", false, "-"), 5);
+        assert_eq!(parse_allele("INF-42", false, "-"), 42); // strip one INF-
+        assert_eq!(parse_allele("INF-INF-42", false, "-"), 0); // double -> not numeric -> 0
+        assert_eq!(parse_allele("-", false, "-"), 0); // missing
+        assert_eq!(parse_allele(" 7 ", false, "-"), 7); // trimmed
+        assert_eq!(parse_allele("", false, "-"), 0);
+        assert_eq!(parse_allele("abc", false, "-"), 0);
+        assert_eq!(parse_allele("12x", false, "-"), 0);
+        // with --skip-input-replacements, INF- is left in place -> not numeric -> 0
+        assert_eq!(parse_allele("INF-9", true, "-"), 0);
+        // custom missing char
+        assert_eq!(parse_allele("NA", false, "NA"), 0);
+    }
+
+    #[test]
+    fn hamming_semantics() {
+        assert_eq!(distance(&[1, 2, 3], &[1, 9, 3], 0), 1); // one difference
+        assert_eq!(distance(&[1, 2, 3], &[1, 2, 3], 0), 0); // identical
+        assert_eq!(distance(&[1, 2, 3], &[4, 5, 6], 0), 3); // all differ
+        assert_eq!(distance(&[0, 2, 3], &[1, 2, 3], 0), 0); // missing on a -> ignored
+        assert_eq!(distance(&[1, 2, 3], &[1, 2, 0], 0), 0); // missing on b -> ignored
+        assert_eq!(distance(&[0, 0, 0], &[1, 2, 3], 0), 0); // all missing on one side
+    }
+
+    #[test]
+    fn max_dist_cap() {
+        // early-exit stops counting at the cap
+        assert_eq!(distance(&[1, 2, 3, 4], &[5, 6, 7, 8], 2), 2);
+        assert_eq!(distance(&[1, 2, 3, 4], &[5, 6, 7, 8], 0), 4); // 0 = no cap
+    }
+}
