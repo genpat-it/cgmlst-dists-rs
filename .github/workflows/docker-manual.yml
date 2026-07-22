@@ -1,0 +1,53 @@
+name: Build Docker (manual)
+
+# On-demand image build+push (no GitHub Release / crate publish). Use this to
+# ship an unreleased build of main, e.g. tagged "0.1.2-unreleased".
+on:
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Image tag to publish"
+        default: "0.1.2-unreleased"
+        required: true
+      update_latest:
+        description: "Also move :latest to this build"
+        type: boolean
+        default: true
+
+env:
+  REGISTRY: ghcr.io
+  IMAGE_NAME: ${{ github.repository }}
+
+jobs:
+  docker:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Build & test
+        run: cargo test --release --verbose
+
+      - name: Log in to GitHub Container Registry
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build and push (${{ inputs.tag }})
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          push: true
+          tags: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ inputs.tag }}
+
+      - name: Also tag :latest
+        if: ${{ inputs.update_latest }}
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          push: true
+          tags: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:latest
