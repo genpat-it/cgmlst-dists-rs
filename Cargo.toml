@@ -4,6 +4,12 @@ version = "0.1.0"
 edition = "2021"
 description = "Ultra-fast pairwise Hamming distance matrix for cgMLST allele call tables (Rust port of cgmlst-dists-py)"
 license = "GPL-3.0-only"
+authors = ["Andrea de Ruvo"]
+repository = "https://github.com/genpat-it/cgmlst-dists-rs"
+homepage = "https://github.com/genpat-it/cgmlst-dists-rs"
+readme = "README.md"
+keywords = ["cgmlst", "bioinformatics", "genomics", "hamming", "distance"]
+categories = ["science", "command-line-utilities"]
 
 [[bin]]
 name = "cgmlst-dists"
