@@ -34,8 +34,8 @@ docker run --rm -u "$(id -u):$(id -g)" -v "$(pwd):/data" \
   ghcr.io/genpat-it/cgmlst-dists-rs -i /data/chewbbaca.tab -o /data/distances.tsv
 ```
 
-The image is a ~14 MB static binary (Alpine) built with portable AVX2 SIMD
-(`x86-64-v3`), so it runs on any x86-64 Linux host from ~2013 onward.
+The image (Debian slim) is built with portable AVX2 SIMD (`x86-64-v3`), so it
+runs on any x86-64 Linux host from ~2013 onward.
 
 ### Cargo (crates.io)
 
