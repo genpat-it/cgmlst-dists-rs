@@ -21,6 +21,19 @@ instruction), which is the main reason it outperforms the original C
 
 ## Install
 
+### Docker (no Rust toolchain needed)
+
+```bash
+docker pull ghcr.io/genpat-it/cgmlst-dists-rs
+docker run --rm -u "$(id -u):$(id -g)" -v "$(pwd):/data" \
+  ghcr.io/genpat-it/cgmlst-dists-rs -i /data/chewbbaca.tab -o /data/distances.tsv
+```
+
+The image is a ~14 MB static binary (Alpine) built with portable AVX2 SIMD
+(`x86-64-v3`), so it runs on any x86-64 Linux host from ~2013 onward.
+
+### From source
+
 ```bash
 git clone https://github.com/genpat-it/cgmlst-dists-rs.git
 cd cgmlst-dists-rs
@@ -28,8 +41,8 @@ RUSTFLAGS="-C target-cpu=native" cargo build --release
 # binary: target/release/cgmlst-dists
 ```
 
-`-C target-cpu=native` enables the widest SIMD your CPU supports and is
-recommended for best performance.
+`-C target-cpu=native` enables the widest SIMD your CPU supports (e.g. AVX-512)
+and is recommended for best performance when building for your own machine.
 
 ## Usage
 
