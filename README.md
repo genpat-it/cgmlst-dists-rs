@@ -67,6 +67,7 @@ cgmlst-dists -i in.tab -m lower-tri -o dist.tsv       # triangular
 |------|---------|
 | `-i, --input` | input allele-call TSV (`-` for stdin) |
 | `-o, --output` | output file [default: stdout] |
+| `-z, --gzip` | gzip the output (also auto-enabled when `-o` ends with `.gz`) |
 | `-t, --threads` | threads [default: all cores] |
 | `-m, --matrix-format` | `full` \| `lower-tri` \| `upper-tri` |
 | `-d, --input-sep` / `-D, --output-sep` | field separators [tab] |
