@@ -1,5 +1,9 @@
 # cgmlst-dists-rs
 
+[![Crates.io](https://img.shields.io/crates/v/cgmlst-dists-rs.svg?logo=rust)](https://crates.io/crates/cgmlst-dists-rs)
+[![CI](https://github.com/genpat-it/cgmlst-dists-rs/actions/workflows/ci.yml/badge.svg)](https://github.com/genpat-it/cgmlst-dists-rs/actions/workflows/ci.yml)
+[![Docker](https://img.shields.io/badge/docker-ghcr.io-blue?logo=docker)](https://github.com/genpat-it/cgmlst-dists-rs/pkgs/container/cgmlst-dists-rs)
+
 Ultra-fast pairwise **cgMLST Hamming distance matrix** from chewBBACA allele
 call tables — a Rust reimplementation of
 [cgmlst-dists-py](https://github.com/genpat-it/cgmlst-dists-py), producing
@@ -31,6 +35,12 @@ docker run --rm -u "$(id -u):$(id -g)" -v "$(pwd):/data" \
 
 The image is a ~14 MB static binary (Alpine) built with portable AVX2 SIMD
 (`x86-64-v3`), so it runs on any x86-64 Linux host from ~2013 onward.
+
+### Cargo (crates.io)
+
+```bash
+cargo install cgmlst-dists-rs
+```
 
 ### From source
 
