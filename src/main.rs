@@ -158,6 +158,56 @@ fn available_memory_bytes() -> Option<u64> {
     None
 }
 
+/// Write the header + matrix rows to `out`. Rows are formatted into byte
+/// buffers in parallel (chunked to bound memory) and written in order, so the
+/// per-row integer formatting (the CPU bottleneck at scale) is spread across
+/// cores. Works with any writer, including a parallel gzip stream.
+fn write_matrix<W: Write>(
+    out: &mut W,
+    ids: &[&str],
+    upper: &[Vec<i32>],
+    n: usize,
+    osep: &[u8],
+    index_name: &str,
+    mfmt: MatrixFormat,
+) {
+    out.write_all(index_name.as_bytes()).unwrap();
+    for id in ids {
+        out.write_all(osep).unwrap();
+        out.write_all(id.as_bytes()).unwrap();
+    }
+    out.write_all(b"\n").unwrap();
+
+    const CHUNK: usize = 1024;
+    let mut start = 0usize;
+    while start < n {
+        let end = (start + CHUNK).min(n);
+        let bufs: Vec<Vec<u8>> = (start..end)
+            .into_par_iter()
+            .map(|i| {
+                let mut buf: Vec<u8> = Vec::with_capacity((n + 1) * 7);
+                let mut ib = itoa::Buffer::new();
+                buf.extend_from_slice(ids[i].as_bytes());
+                for j in 0..n {
+                    buf.extend_from_slice(osep);
+                    let v = match mfmt {
+                        MatrixFormat::Full => at(upper, i, j),
+                        MatrixFormat::LowerTri => if j <= i { at(upper, i, j) } else { 0 },
+                        MatrixFormat::UpperTri => if j >= i { at(upper, i, j) } else { 0 },
+                    };
+                    buf.extend_from_slice(ib.format(v).as_bytes());
+                }
+                buf.push(b'\n');
+                buf
+            })
+            .collect();
+        for b in &bufs {
+            out.write_all(b).unwrap();
+        }
+        start = end;
+    }
+}
+
 fn main() {
     let args = Args::parse();
     let t_start = Instant::now();
@@ -322,56 +372,23 @@ fn main() {
         })),
         None => Box::new(io::stdout()),
     };
-    // Optional gzip (when the output path ends with .gz): compresses the (highly
-    // redundant) matrix, so far fewer bytes cross a slow Docker bind mount.
-    let inner: Box<dyn Write> = if gzip {
-        Box::new(flate2::write::GzEncoder::new(file_writer, flate2::Compression::new(1)))
-    } else {
-        file_writer
-    };
-    let mut out = BufWriter::with_capacity(16 * 1024 * 1024, inner);
-
-    // Header
-    out.write_all(args.index_name.as_bytes()).unwrap();
-    for id in &ids {
-        out.write_all(&osep).unwrap();
-        out.write_all(id.as_bytes()).unwrap();
-    }
-    out.write_all(b"\n").unwrap();
-
-    // Format rows into byte buffers in parallel (chunked to bound memory), then
-    // write each chunk in order. Row formatting is the CPU bottleneck at scale,
-    // so spreading it across cores is a big win; output stays byte-identical.
+    // Optional gzip (when -z/--gzip or the output name ends with .gz): the matrix
+    // is highly redundant and compresses ~4x, so far fewer bytes cross a slow
+    // Docker bind mount. gzp compresses blocks across all cores (standard .gz,
+    // readable by gunzip/zcat). Default output is uncompressed plain text.
     let mfmt = args.matrix_format;
-    const CHUNK: usize = 1024;
-    let mut start = 0usize;
-    while start < n {
-        let end = (start + CHUNK).min(n);
-        let bufs: Vec<Vec<u8>> = (start..end)
-            .into_par_iter()
-            .map(|i| {
-                let mut buf: Vec<u8> = Vec::with_capacity((n + 1) * 7);
-                let mut ib = itoa::Buffer::new();
-                buf.extend_from_slice(ids[i].as_bytes());
-                for j in 0..n {
-                    buf.extend_from_slice(&osep);
-                    let v = match mfmt {
-                        MatrixFormat::Full => at(&upper, i, j),
-                        MatrixFormat::LowerTri => if j <= i { at(&upper, i, j) } else { 0 },
-                        MatrixFormat::UpperTri => if j >= i { at(&upper, i, j) } else { 0 },
-                    };
-                    buf.extend_from_slice(ib.format(v).as_bytes());
-                }
-                buf.push(b'\n');
-                buf
-            })
-            .collect();
-        for b in &bufs {
-            out.write_all(b).unwrap();
-        }
-        start = end;
+    if gzip {
+        use gzp::{deflate::Gzip, par::compress::ParCompressBuilder, ZWriter};
+        let mut z = ParCompressBuilder::<Gzip>::new()
+            .compression_level(gzp::Compression::new(3))
+            .from_writer(file_writer);
+        write_matrix(&mut z, &ids, &upper, n, &osep, &args.index_name, mfmt);
+        z.finish().unwrap();
+    } else {
+        let mut out = BufWriter::with_capacity(16 * 1024 * 1024, file_writer);
+        write_matrix(&mut out, &ids, &upper, n, &osep, &args.index_name, mfmt);
+        out.flush().unwrap();
     }
-    out.flush().unwrap();
 
     if !args.silent {
         eprintln!(
