@@ -58,6 +58,11 @@ struct Args {
     #[arg(short = 'S', long)]
     sample_completeness: Option<f64>,
 
+    /// gzip-compress the output (also auto-enabled when -o ends with .gz).
+    /// Default is uncompressed plain text.
+    #[arg(short = 'z', long, default_value_t = false)]
+    gzip: bool,
+
     /// Stop counting beyond this distance (early-exit; 0 = no cap)
     #[arg(short = 'X', long, default_value_t = 0)]
     max_dist: i32,
@@ -117,6 +122,18 @@ fn distance(a: &[i32], b: &[i32], max_dist: i32) -> i32 {
         }
     }
     d
+}
+
+/// Symmetric lookup into the upper-triangle storage: distance between i and j.
+#[inline]
+fn at(upper: &[Vec<i32>], i: usize, j: usize) -> i32 {
+    if i == j {
+        0
+    } else if j > i {
+        upper[i][j - i - 1]
+    } else {
+        upper[j][i - j - 1]
+    }
 }
 
 fn read_input(path: &str) -> io::Result<String> {
@@ -294,49 +311,65 @@ fn main() {
         eprintln!("Computed {} x {} matrix in {:.2}s", n, n, t_calc.elapsed().as_secs_f64());
     }
 
-    // symmetric lookup
-    let at = |i: usize, j: usize| -> i32 {
-        if i == j {
-            0
-        } else if j > i {
-            upper[i][j - i - 1]
-        } else {
-            upper[j][i - j - 1]
-        }
-    };
-
     // ---- Write ----
     let t_save = Instant::now();
-    let osep = args.output_sep.as_bytes();
-    let writer: Box<dyn Write> = match &args.output {
+    let osep: Vec<u8> = args.output_sep.as_bytes().to_vec();
+    let gzip = args.gzip || args.output.as_deref().map_or(false, |p| p.ends_with(".gz"));
+    let file_writer: Box<dyn Write + Send> = match &args.output {
         Some(p) => Box::new(File::create(p).unwrap_or_else(|e| {
             eprintln!("error creating {}: {}", p, e);
             std::process::exit(1);
         })),
         None => Box::new(io::stdout()),
     };
-    let mut out = BufWriter::with_capacity(16 * 1024 * 1024, writer);
+    // Optional gzip (when the output path ends with .gz): compresses the (highly
+    // redundant) matrix, so far fewer bytes cross a slow Docker bind mount.
+    let inner: Box<dyn Write> = if gzip {
+        Box::new(flate2::write::GzEncoder::new(file_writer, flate2::Compression::new(1)))
+    } else {
+        file_writer
+    };
+    let mut out = BufWriter::with_capacity(16 * 1024 * 1024, inner);
 
+    // Header
     out.write_all(args.index_name.as_bytes()).unwrap();
     for id in &ids {
-        out.write_all(osep).unwrap();
+        out.write_all(&osep).unwrap();
         out.write_all(id.as_bytes()).unwrap();
     }
     out.write_all(b"\n").unwrap();
 
-    let mut ibuf = itoa::Buffer::new();
-    for i in 0..n {
-        out.write_all(ids[i].as_bytes()).unwrap();
-        for j in 0..n {
-            out.write_all(osep).unwrap();
-            let v = match args.matrix_format {
-                MatrixFormat::Full => at(i, j),
-                MatrixFormat::LowerTri => if j <= i { at(i, j) } else { 0 },
-                MatrixFormat::UpperTri => if j >= i { at(i, j) } else { 0 },
-            };
-            out.write_all(ibuf.format(v).as_bytes()).unwrap();
+    // Format rows into byte buffers in parallel (chunked to bound memory), then
+    // write each chunk in order. Row formatting is the CPU bottleneck at scale,
+    // so spreading it across cores is a big win; output stays byte-identical.
+    let mfmt = args.matrix_format;
+    const CHUNK: usize = 1024;
+    let mut start = 0usize;
+    while start < n {
+        let end = (start + CHUNK).min(n);
+        let bufs: Vec<Vec<u8>> = (start..end)
+            .into_par_iter()
+            .map(|i| {
+                let mut buf: Vec<u8> = Vec::with_capacity((n + 1) * 7);
+                let mut ib = itoa::Buffer::new();
+                buf.extend_from_slice(ids[i].as_bytes());
+                for j in 0..n {
+                    buf.extend_from_slice(&osep);
+                    let v = match mfmt {
+                        MatrixFormat::Full => at(&upper, i, j),
+                        MatrixFormat::LowerTri => if j <= i { at(&upper, i, j) } else { 0 },
+                        MatrixFormat::UpperTri => if j >= i { at(&upper, i, j) } else { 0 },
+                    };
+                    buf.extend_from_slice(ib.format(v).as_bytes());
+                }
+                buf.push(b'\n');
+                buf
+            })
+            .collect();
+        for b in &bufs {
+            out.write_all(b).unwrap();
         }
-        out.write_all(b"\n").unwrap();
+        start = end;
     }
     out.flush().unwrap();
 

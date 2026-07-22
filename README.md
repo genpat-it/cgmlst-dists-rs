@@ -78,6 +78,21 @@ cgmlst-dists -i in.tab -m lower-tri -o dist.tsv       # triangular
 | `-f, --force` | skip the up-front memory feasibility check |
 | `-s, --silent` | suppress progress on stderr |
 
+### Large outputs / slow Docker bind mounts
+
+At large scale the output matrix is huge (~12 GB for 50k samples). Row
+formatting is parallelized, so on a local disk writing is fast (~5 s). If you
+run in Docker and write through a **bind mount** (which can be slow, especially
+on Docker Desktop), gzip the output to move ~4× fewer bytes:
+
+```bash
+docker run --rm -u "$(id -u):$(id -g)" -v "$(pwd):/data" \
+  ghcr.io/genpat-it/cgmlst-dists-rs -i /data/in.tab -o /data/distances.tsv.gz
+# read it back with: zcat distances.tsv.gz
+```
+
+Gzip is opt-in (a `.gz` output name, or `-z/--gzip`); the default is plain text.
+
 **Distance semantics** (identical to cgmlst-dists-py): distance = number of loci
 where the two alleles differ and **both are present** (non-missing). The
 chewBBACA `INF-` prefix is stripped and missing calls are treated as absent.
