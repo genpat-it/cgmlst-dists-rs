@@ -153,12 +153,24 @@ time cgmlst-dists -i bench_hashed.tsv -o rs_hashed.tsv
 md5sum rs.tsv rs_hashed.tsv     # identical: same profiles, CRC32 ids
 ```
 
-## GPU backend: Hamming distance as a ReLU network (optional)
+## GPU backend (optional)
 
 Built with `--features cuda` (needs `nvcc`; `CUDA_HOME` defaults to
 `/usr/local/cuda`, `CUDA_ARCH` to `native`), `--gpu` computes the matrix on an
-NVIDIA GPU with a **hand-wired ReLU network** instead of comparisons — no
-training, the weights are written by hand and the network is exact:
+NVIDIA GPU. Allele ids are re-encoded as dense per-locus ranks first (equality
+is all the distance needs), so hashed CRC32 profiles stay exact. The kernel is
+tiled like a GEMM, runs in row stripes sized to the free VRAM (it shares a GPU
+fine) and overlaps the copy-back with the next stripe. Output is byte-identical
+to the CPU path.
+
+```bash
+cargo build --release --features cuda
+./target/release/cgmlst-dists --gpu -i calls.tsv -o dists.tsv
+```
+
+`--gpu-relu` swaps the per-locus comparison for a **hand-wired ReLU network**
+(no training, exact weights) computing the same bit — a demonstration that the
+distance can be expressed as a neural network, not a speed-up:
 
 ```
 diff = relu(a-b) + relu(b-a) - relu(a-b-1) - relu(b-a-1)   # [a != b]
@@ -166,21 +178,11 @@ pa   = a - relu(a-1),   pb = b - relu(b-1)                 # [a > 0], [b > 0]
 out  = relu(diff + pa + pb - 2)                            # AND  -> distance = sum over loci
 ```
 
-Allele ids are re-encoded as dense per-locus ranks first (equality is all the
-distance needs), so hashed CRC32 profiles stay exact in fp32. The kernel is
-tiled like a GEMM with the multiply-add replaced by the network, runs in row
-stripes sized to the free VRAM (it shares a GPU fine) and overlaps the copy-back
-with the next stripe. Output is byte-identical to the CPU path.
-
-```bash
-cargo build --release --features cuda
-./target/release/cgmlst-dists --gpu -i calls.tsv -o dists.tsv
-```
-
 | 50 000 × 5 000 (synthetic) | compute | total |
 |---|---:|---:|
 | CPU, 80 cores | 55–116 s (load-dependent) | 60–125 s |
-| `--gpu`, NVIDIA L4 (671 MB VRAM used) | **11.7 s** | **16–21 s** |
+| `--gpu`, NVIDIA L4 (< 700 MB VRAM) | **5.0 s** | **10–11 s** |
+| `--gpu --gpu-relu`, NVIDIA L4 | 11.7 s | 16–21 s |
 
 For small inputs (≲ 10k samples) the CPU path is faster: CUDA start-up costs
 ~0.2 s.

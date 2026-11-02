@@ -80,10 +80,14 @@ struct Args {
     #[arg(short = 'f', long, default_value_t = false)]
     force: bool,
 
-    /// Compute on the GPU: the distance as a hand-wired ReLU network
-    /// (build with `--features cuda`). Same output as the CPU path.
+    /// Compute on the GPU (build with `--features cuda`). Same output as the CPU path.
     #[arg(short = 'g', long, default_value_t = false)]
     gpu: bool,
+
+    /// With --gpu, compute each locus with a hand-wired ReLU network instead of
+    /// a comparison (a demonstration: identical output, ~2.3x slower)
+    #[arg(long, default_value_t = false, requires = "gpu")]
+    gpu_relu: bool,
 
     /// CUDA device index for --gpu
     #[arg(long, default_value_t = 0)]
@@ -292,10 +296,10 @@ fn gpu_upper(calls: &[u32], n: usize, n_loci: usize, max_dist: i32, args: &Args)
         eprintln!("error: --gpu: CUDA device {} not available", args.gpu_device);
         std::process::exit(1);
     }
-    match gpu::upper_triangle(calls, n, n_loci, max_dist, args.gpu_device, args.gpu_stripe) {
+    match gpu::upper_triangle(calls, n, n_loci, max_dist, args.gpu_device, args.gpu_stripe, args.gpu_relu) {
         Ok((upper, secs)) => {
             if !args.silent {
-                eprintln!("GPU (ReLU network) pipeline: {:.2}s", secs);
+                eprintln!("GPU ({}) pipeline: {:.2}s", if args.gpu_relu { "ReLU network" } else { "compare" }, secs);
             }
             upper
         }
@@ -314,6 +318,10 @@ fn gpu_upper(_: &[u32], _: usize, _: usize, _: i32, _: &Args) -> Vec<Vec<i32>> {
 
 fn main() {
     let args = Args::parse();
+    if args.gpu && !cfg!(feature = "cuda") {
+        eprintln!("error: --gpu needs a build with `cargo build --release --features cuda`");
+        std::process::exit(1);
+    }
     let t_start = Instant::now();
 
     if args.threads > 0 {

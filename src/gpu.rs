@@ -1,5 +1,6 @@
-//! GPU backend (`--features cuda`, `--gpu`): the Hamming distance computed by a
-//! hand-wired ReLU network (see cuda/relu_hamming.cu). Allele ids are first
+//! GPU backend (`--features cuda`, `--gpu`): a tiled CUDA kernel (see
+//! cuda/relu_hamming.cu) using a direct comparison per locus, or with
+//! `--gpu-relu` the same bit computed by a hand-wired ReLU network. Allele ids are first
 //! re-encoded as dense per-locus ranks (0 = missing, 1..k), which preserves
 //! equality within each locus — the only thing the distance depends on — and
 //! keeps every value exact in fp32 on the GPU.
@@ -42,7 +43,7 @@ mod ffi {
     extern "C" {
         pub fn rh_device_count() -> c_int;
         pub fn rh_run(
-            x: *const u16, n: c_int, l: c_int, device: c_int, stripe_rows: c_int,
+            x: *const u16, n: c_int, l: c_int, device: c_int, stripe_rows: c_int, relu: c_int,
             cb: StripeCb, ctx: *mut c_void, gpu_secs: *mut f64, err: *mut c_char, errlen: c_int,
         ) -> c_int;
     }
@@ -78,7 +79,7 @@ extern "C" fn on_stripe(ctx: *mut std::os::raw::c_void, r0: i32, rows: i32, stri
 /// Returns it with the GPU pipeline time in seconds.
 #[cfg(feature = "cuda")]
 pub fn upper_triangle(
-    calls: &[u32], n: usize, n_loci: usize, max_dist: i32, device: usize, stripe_rows: usize,
+    calls: &[u32], n: usize, n_loci: usize, max_dist: i32, device: usize, stripe_rows: usize, relu: bool,
 ) -> Result<(Vec<Vec<i32>>, f64), String> {
     if n_loci > u16::MAX as usize {
         return Err(format!("{} loci: the GPU path supports at most 65535", n_loci));
@@ -97,7 +98,7 @@ pub fn upper_triangle(
     let mut secs = 0f64;
     let rc = unsafe {
         ffi::rh_run(
-            x.as_ptr(), n as i32, n_loci as i32, device as i32, stripe_rows as i32, on_stripe,
+            x.as_ptr(), n as i32, n_loci as i32, device as i32, stripe_rows as i32, relu as i32, on_stripe,
             &mut sink as *mut Sink as *mut _, &mut secs, err.as_mut_ptr(), err.len() as i32,
         )
     };
@@ -138,12 +139,12 @@ mod tests {
         let calls: Vec<u32> = (0..n * l)
             .map(|_| { let r = rnd(); if r % 20 == 0 { 0 } else if r % 3 == 0 { u32::MAX - r % 5 } else { r % 4 } })
             .collect();
-        for &(cap, stripe) in &[(0, 0), (0, 64), (5, 128)] {
-            let (up, _) = upper_triangle(&calls, n, l, cap, 0, stripe).unwrap();
+        for &(cap, stripe, relu) in &[(0, 0, false), (0, 64, false), (5, 128, false), (0, 0, true), (5, 64, true)] {
+            let (up, _) = upper_triangle(&calls, n, l, cap, 0, stripe, relu).unwrap();
             for i in 0..n {
                 for j in i + 1..n {
                     let cpu = crate::distance(&calls[i * l..(i + 1) * l], &calls[j * l..(j + 1) * l], cap);
-                    assert_eq!(up[i][j - i - 1], cpu, "i={i} j={j} cap={cap} stripe={stripe}");
+                    assert_eq!(up[i][j - i - 1], cpu, "i={i} j={j} cap={cap} stripe={stripe} relu={relu}");
                 }
             }
         }
