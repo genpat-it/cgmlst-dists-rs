@@ -11,6 +11,8 @@ use std::time::Instant;
 use clap::Parser;
 use rayon::prelude::*;
 
+mod gpu;
+
 #[derive(Parser, Debug)]
 #[command(name = "cgmlst-dists", version, about = "Pairwise cg-MLST Hamming distance matrix (Rust)")]
 struct Args {
@@ -77,6 +79,19 @@ struct Args {
     /// Skip the up-front memory feasibility check
     #[arg(short = 'f', long, default_value_t = false)]
     force: bool,
+
+    /// Compute on the GPU: the distance as a hand-wired ReLU network
+    /// (build with `--features cuda`). Same output as the CPU path.
+    #[arg(short = 'g', long, default_value_t = false)]
+    gpu: bool,
+
+    /// CUDA device index for --gpu
+    #[arg(long, default_value_t = 0)]
+    gpu_device: usize,
+
+    /// Rows per GPU stripe for --gpu [default: 0 = sized from free VRAM]
+    #[arg(long, default_value_t = 0, hide = true)]
+    gpu_stripe: usize,
 
     /// Suppress progress/log messages on stderr
     #[arg(short = 's', long, default_value_t = false)]
@@ -271,6 +286,32 @@ fn write_matrix<W: Write>(
     }
 }
 
+#[cfg(feature = "cuda")]
+fn gpu_upper(calls: &[u32], n: usize, n_loci: usize, max_dist: i32, args: &Args) -> Vec<Vec<i32>> {
+    if gpu::device_count() <= args.gpu_device {
+        eprintln!("error: --gpu: CUDA device {} not available", args.gpu_device);
+        std::process::exit(1);
+    }
+    match gpu::upper_triangle(calls, n, n_loci, max_dist, args.gpu_device, args.gpu_stripe) {
+        Ok((upper, secs)) => {
+            if !args.silent {
+                eprintln!("GPU (ReLU network) pipeline: {:.2}s", secs);
+            }
+            upper
+        }
+        Err(e) => {
+            eprintln!("error: --gpu: {e}");
+            std::process::exit(1);
+        }
+    }
+}
+
+#[cfg(not(feature = "cuda"))]
+fn gpu_upper(_: &[u32], _: usize, _: usize, _: i32, _: &Args) -> Vec<Vec<i32>> {
+    eprintln!("error: --gpu needs a build with `cargo build --release --features cuda`");
+    std::process::exit(1);
+}
+
 fn main() {
     let args = Args::parse();
     let t_start = Instant::now();
@@ -435,19 +476,23 @@ fn main() {
     // ---- Compute upper triangle (jagged, parallel over rows) ----
     let t_calc = Instant::now();
     let max_dist = args.max_dist;
-    // upper[i] holds distances to j = i+1 .. n-1 (length n-1-i).
-    let upper: Vec<Vec<i32>> = (0..n)
-        .into_par_iter()
-        .map(|i| {
-            let ai = &calls[i * n_loci..(i + 1) * n_loci];
-            let mut row = Vec::with_capacity(n - 1 - i.min(n - 1));
-            for j in (i + 1)..n {
-                let aj = &calls[j * n_loci..(j + 1) * n_loci];
-                row.push(distance(ai, aj, max_dist));
-            }
-            row
-        })
-        .collect();
+    let upper: Vec<Vec<i32>> = if args.gpu {
+        gpu_upper(&calls, n, n_loci, max_dist, &args)
+    } else {
+        // upper[i] holds distances to j = i+1 .. n-1 (length n-1-i).
+        (0..n)
+            .into_par_iter()
+            .map(|i| {
+                let ai = &calls[i * n_loci..(i + 1) * n_loci];
+                let mut row = Vec::with_capacity(n - 1 - i.min(n - 1));
+                for j in (i + 1)..n {
+                    let aj = &calls[j * n_loci..(j + 1) * n_loci];
+                    row.push(distance(ai, aj, max_dist));
+                }
+                row
+            })
+            .collect()
+    };
     if !args.silent {
         eprintln!("Computed {} x {} matrix in {:.2}s", n, n, t_calc.elapsed().as_secs_f64());
     }

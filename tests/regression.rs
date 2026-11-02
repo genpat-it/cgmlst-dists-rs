@@ -33,3 +33,21 @@ fn listeria_hashed_profiles_novel_as_allele() {
     assert_eq!(rows[2][1..], ["1234", "0", "59"]);
     assert_eq!(rows[3][1..], ["1233", "59", "0"]);
 }
+
+#[cfg(feature = "cuda")]
+#[test]
+fn listeria_hashed_profiles_gpu_identical() {
+    let run = |extra: &[&str]| {
+        let mut a = vec!["-s", "-i", concat!(env!("CARGO_MANIFEST_DIR"), "/tests/data/listeria_hashed_3.tsv")];
+        a.extend_from_slice(extra);
+        let out = Command::new(env!("CARGO_BIN_EXE_cgmlst-dists")).args(&a).output().unwrap();
+        (out.status.success(), out.stdout, String::from_utf8_lossy(&out.stderr).into_owned())
+    };
+    let (ok, gpu, err) = run(&["--gpu"]);
+    if !ok && err.contains("not available") {
+        eprintln!("no CUDA device, skipped");
+        return;
+    }
+    assert!(ok, "{err}");
+    assert_eq!(gpu, run(&[]).1);
+}
