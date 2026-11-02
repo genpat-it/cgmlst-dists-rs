@@ -177,7 +177,7 @@ time cgmlst-dists -i bench.tsv -o out.tsv</pre>
 <p>The distance loop is written so LLVM vectorizes it: 16 loci per AVX-512 instruction. Only the upper triangle is
 computed, and parsing, distances and output formatting all run on every core.</p></div></section><section class="row" id="family"><h2>Related</h2><div class="body"><div class="family"><div><b><a href="https://github.com/tseemann/cgmlst-dists">cgmlst-dists</a></b><span>The original, in C, by Torsten Seemann. Bioconda <code>cgmlst-dists</code>.</span></div><div><b><a href="https://genpat-it.github.io/cgmlst-dists-py/">cgmlst-dists-py</a></b><span>Python port with GrapeTree missing-data handlers, <code>--dedup</code> and an optional GPU path.</span></div><div class="this"><b><a href="https://genpat-it.github.io/cgmlst-dists-rs/">cgmlst-dists-rs</a></b><span>Rust port for speed: SIMD kernel, all cores, half-matrix computation.</span></div></div></div></section>
 <footer><span>GPL-3.0-only · <a href="https://github.com/genpat-it">genpat-it</a></span>
-<span>Version 0.1.3 · <a href="https://github.com/genpat-it/cgmlst-dists-rs/blob/main/CHANGELOG.md">changelog</a></span></footer>
+<span>Version 0.1.4 · <a href="https://github.com/genpat-it/cgmlst-dists-rs/blob/main/CHANGELOG.md">changelog</a></span></footer>
 </div>
 
 <script>

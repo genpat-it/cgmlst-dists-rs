@@ -1,5 +1,14 @@
 # Changelog
 
+## [0.1.4] - 2026-11-02
+
+### Changed
+- gzip output (`-z` / `.gz`) uses the pure-Rust deflate backend instead of
+  zlib-ng. The build no longer needs a C/C++ toolchain or cmake (zlib-ng's cmake
+  build broke the macOS Bioconda package), and on 20 000 x 3 000 the gzipped
+  output is written faster (6.2 s -> 5.2 s) and is 8% smaller, with identical
+  content once decompressed.
+
 ## [0.1.3] - 2026-11-02
 
 ### Fixed
