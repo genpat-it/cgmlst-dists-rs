@@ -6,9 +6,13 @@
 [![License](https://img.shields.io/badge/license-GPL--3.0-blue.svg)](LICENSE)
 
 Ultra-fast pairwise **cgMLST Hamming distance matrix** from chewBBACA allele
-call tables — a Rust reimplementation of
-[cgmlst-dists-py](https://github.com/genpat-it/cgmlst-dists-py), producing
+call tables — a Rust port of
+[cgmlst-dists](https://github.com/tseemann/cgmlst-dists) by Torsten Seemann (via
+[cgmlst-dists-py](https://github.com/genpat-it/cgmlst-dists-py)), producing
 **byte-identical output** while running several times faster.
+
+> **Independent port.** This is not the original tool and is not affiliated with
+> or endorsed by its author. `cgmlst-dists` is GPL-3.0, and so is this port.
 
 The distance kernel **auto-vectorizes to AVX-512 SIMD** (16 loci compared per
 instruction), which is the main reason it outperforms the original C
@@ -36,6 +40,15 @@ docker run --rm -u "$(id -u):$(id -g)" -v "$(pwd):/data" \
 
 The image (Debian slim) is built with portable AVX2 SIMD (`x86-64-v3`), so it
 runs on any x86-64 Linux host from ~2013 onward.
+
+### Bioconda
+
+```bash
+conda install -c bioconda cgmlst-dists-rs
+```
+
+In the conda package the binary is named **`cgmlst-dists-rs`**, so it can sit in
+the same environment as the original `cgmlst-dists`.
 
 ### Cargo (crates.io)
 
