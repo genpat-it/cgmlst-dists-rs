@@ -85,11 +85,13 @@ enum MatrixFormat {
     UpperTri,
 }
 
-/// Parse a single allele cell into an integer, matching the Python semantics:
-/// strip one leading `INF-`, trim whitespace, missing char -> 0, and anything
-/// that is not a plain non-negative integer -> 0.
+/// Parse a single allele cell into an integer: strip one leading `INF-`, trim
+/// whitespace, missing char -> 0, and anything that is not a plain non-negative
+/// integer -> 0. Alleles are read as u64 so chewBBACA hashed profiles (CRC32,
+/// up to 2^32-1) and any other large integer id are kept, not lost as missing.
+/// Returns `Err` for an integer that does not fit in u64.
 #[inline]
-fn parse_allele(cell: &str, skip_repl: bool, missing: &str) -> i32 {
+fn parse_allele(cell: &str, skip_repl: bool, missing: &str) -> Result<u64, ()> {
     let mut s = cell.trim();
     if !skip_repl {
         if let Some(rest) = s.strip_prefix("INF-") {
@@ -97,19 +99,47 @@ fn parse_allele(cell: &str, skip_repl: bool, missing: &str) -> i32 {
         }
     }
     if s == missing || s.is_empty() {
-        return 0;
+        return Ok(0);
     }
     if s.bytes().all(|b| b.is_ascii_digit()) {
-        s.parse::<i32>().unwrap_or(0)
+        s.parse::<u64>().map_err(|_| ())
     } else {
-        0
+        Ok(0)
+    }
+}
+
+/// Re-encode loci holding alleles > u32::MAX: each such locus gets dense ids
+/// 1..k (0 stays missing), which preserves equality within the locus — the only
+/// thing the distance depends on. `big` lists (row, locus, value) for every
+/// cell whose value did not fit in u32 (its slot in `calls` is a placeholder).
+fn remap_big_loci(calls: &mut [u32], n_loci: usize, big: &[(usize, usize, u64)]) {
+    use std::collections::HashMap;
+    let mut by_locus: HashMap<usize, Vec<(usize, u64)>> = HashMap::new();
+    for &(row, k, v) in big {
+        by_locus.entry(k).or_default().push((row, v));
+    }
+    let n = calls.len() / n_loci.max(1);
+    for (k, cells) in by_locus {
+        let mut col: Vec<u64> = (0..n).map(|i| calls[i * n_loci + k] as u64).collect();
+        for (row, v) in cells {
+            col[row] = v;
+        }
+        let mut ids: HashMap<u64, u32> = HashMap::new();
+        for (i, v) in col.into_iter().enumerate() {
+            calls[i * n_loci + k] = if v == 0 {
+                0
+            } else {
+                let next = ids.len() as u32 + 1;
+                *ids.entry(v).or_insert(next)
+            };
+        }
     }
 }
 
 /// Hamming distance: count loci where alleles differ and both are present
 /// (non-zero). Optional early-exit at `max_dist`.
 #[inline]
-fn distance(a: &[i32], b: &[i32], max_dist: i32) -> i32 {
+fn distance(a: &[u32], b: &[u32], max_dist: i32) -> i32 {
     let mut d: i32 = 0;
     for k in 0..a.len() {
         let x = unsafe { *a.get_unchecked(k) };
@@ -252,24 +282,42 @@ fn main() {
     let skip_repl = args.skip_input_replacements;
     let missing = args.missing_char.as_str();
 
-    let parsed: Vec<(&str, Vec<i32>)> = data_lines
+    // Values that fit in u32 (all of them in practice, CRC32 hashes included)
+    // go straight into the u32 matrix; larger ones are collected and their loci
+    // re-encoded afterwards, so the common case pays nothing extra.
+    let parsed: Vec<(&str, Vec<u32>, Vec<(usize, u64)>)> = data_lines
         .par_iter()
         .map(|line| {
             let mut it = line.split(sep_ch);
             let id = it.next().unwrap_or("");
             let mut calls = Vec::with_capacity(n_loci);
-            for cell in it {
-                calls.push(parse_allele(cell, skip_repl, missing));
+            let mut big = Vec::new();
+            for (k, cell) in it.enumerate() {
+                let v = parse_allele(cell, skip_repl, missing).unwrap_or_else(|_| {
+                    eprintln!("error: sample {}: allele '{}' is an integer too large (> {})", id, cell.trim(), u64::MAX);
+                    std::process::exit(1);
+                });
+                if v > u32::MAX as u64 {
+                    big.push((k, v));
+                    calls.push(u32::MAX);
+                } else {
+                    calls.push(v as u32);
+                }
             }
             calls.resize(n_loci, 0);
-            (id, calls)
+            (id, calls, big)
         })
         .collect();
 
-    let mut ids: Vec<&str> = parsed.iter().map(|(id, _)| *id).collect();
-    let mut calls = vec![0i32; n * n_loci];
-    for (row, (_, c)) in parsed.iter().enumerate() {
-        calls[row * n_loci..(row + 1) * n_loci].copy_from_slice(c);
+    let mut ids: Vec<&str> = parsed.iter().map(|(id, _, _)| *id).collect();
+    let mut calls = vec![0u32; n * n_loci];
+    let mut big: Vec<(usize, usize, u64)> = Vec::new();
+    for (row, (_, c, b)) in parsed.iter().enumerate() {
+        calls[row * n_loci..(row + 1) * n_loci].copy_from_slice(&c[..n_loci]);
+        big.extend(b.iter().filter(|&&(k, _)| k < n_loci).map(|&(k, v)| (row, k, v)));
+    }
+    if !big.is_empty() {
+        remap_big_loci(&mut calls, n_loci, &big);
     }
     drop(parsed);
     if !args.silent {
@@ -286,7 +334,7 @@ fn main() {
             })
             .collect();
         if keep.len() != n_loci {
-            let mut nc = vec![0i32; n * keep.len()];
+            let mut nc = vec![0u32; n * keep.len()];
             nc.par_chunks_mut(keep.len()).enumerate().for_each(|(i, row)| {
                 for (dst, &k) in keep.iter().enumerate() {
                     row[dst] = calls[i * n_loci + k];
@@ -309,7 +357,7 @@ fn main() {
             })
             .collect();
         if keep.len() != n {
-            let mut nc = vec![0i32; keep.len() * n_loci];
+            let mut nc = vec![0u32; keep.len() * n_loci];
             let mut nids = Vec::with_capacity(keep.len());
             for (dst, &i) in keep.iter().enumerate() {
                 nc[dst * n_loci..(dst + 1) * n_loci].copy_from_slice(&calls[i * n_loci..(i + 1) * n_loci]);
@@ -405,18 +453,66 @@ mod tests {
 
     #[test]
     fn parse_semantics() {
-        assert_eq!(parse_allele("5", false, "-"), 5);
-        assert_eq!(parse_allele("INF-42", false, "-"), 42); // strip one INF-
-        assert_eq!(parse_allele("INF-INF-42", false, "-"), 0); // double -> not numeric -> 0
-        assert_eq!(parse_allele("-", false, "-"), 0); // missing
-        assert_eq!(parse_allele(" 7 ", false, "-"), 7); // trimmed
-        assert_eq!(parse_allele("", false, "-"), 0);
-        assert_eq!(parse_allele("abc", false, "-"), 0);
-        assert_eq!(parse_allele("12x", false, "-"), 0);
+        let p = |c: &str| parse_allele(c, false, "-").unwrap();
+        assert_eq!(p("5"), 5);
+        assert_eq!(p("INF-42"), 42); // strip one INF-
+        assert_eq!(p("INF-INF-42"), 0); // double -> not numeric -> 0
+        assert_eq!(p("-"), 0); // missing
+        assert_eq!(p(" 7 "), 7); // trimmed
+        assert_eq!(p(""), 0);
+        assert_eq!(p("abc"), 0);
+        assert_eq!(p("12x"), 0);
+        assert_eq!(p("LNF"), 0); // chewBBACA classes -> missing
+        assert_eq!(p("*486"), 0); // novel (non-numeric) -> missing, as tseemann
         // with --skip-input-replacements, INF- is left in place -> not numeric -> 0
-        assert_eq!(parse_allele("INF-9", true, "-"), 0);
+        assert_eq!(parse_allele("INF-9", true, "-").unwrap(), 0);
         // custom missing char
-        assert_eq!(parse_allele("NA", false, "NA"), 0);
+        assert_eq!(parse_allele("NA", false, "NA").unwrap(), 0);
+    }
+
+    #[test]
+    fn parse_large_integers() {
+        let p = |c: &str| parse_allele(c, false, "-").unwrap();
+        // CRC32 hashes above i32::MAX were silently read as missing (0)
+        assert_eq!(p("2147483648"), 2_147_483_648);
+        assert_eq!(p("3735928559"), 3_735_928_559);
+        assert_eq!(p("4294967295"), u32::MAX as u64);
+        assert_eq!(p("INF-4294967295"), u32::MAX as u64);
+        assert_eq!(p("4294967296"), 4_294_967_296);
+        assert_eq!(p("18446744073709551615"), u64::MAX);
+        assert!(parse_allele("18446744073709551616", false, "-").is_err());
+    }
+
+    #[test]
+    fn hashed_alleles_distance() {
+        let h = |c: &str| parse_allele(c, false, "-").unwrap() as u32;
+        let a = [h("4294967295"), h("2147483648"), h("3000000000"), h("-"), h("123")];
+        let b = [h("4294967295"), h("2147483649"), h("3000000000"), h("4000000000"), h("124")];
+        // equal near 2^32-1, differ by one just above 2^31, equal, missing on a, differ
+        assert_eq!(distance(&a, &b, 0), 2);
+        assert_eq!(distance(&a, &a, 0), 0);
+    }
+
+    #[test]
+    fn remap_values_above_u32() {
+        // 2 rows x 3 loci; locus 1 holds values > u32::MAX
+        let big = [(0usize, 1usize, 5_000_000_000u64), (1, 1, 5_000_000_000)];
+        let mut calls = vec![7, u32::MAX, 0, 7, u32::MAX, 9];
+        remap_big_loci(&mut calls, 3, &big);
+        assert_eq!(distance(&calls[0..3], &calls[3..6], 0), 0); // equal big values
+        let big = [(0usize, 1usize, 5_000_000_000u64), (1, 1, 5_000_000_001)];
+        let mut calls = vec![7, u32::MAX, 0, 7, u32::MAX, 9];
+        remap_big_loci(&mut calls, 3, &big);
+        assert_eq!(distance(&calls[0..3], &calls[3..6], 0), 1); // different big values
+        // a big value and a u32 value in the same locus must stay distinct
+        let big = [(0usize, 0usize, (u32::MAX as u64) + 1)];
+        let mut calls = vec![u32::MAX, 1, u32::MAX, 1];
+        remap_big_loci(&mut calls, 2, &big);
+        assert_eq!(distance(&calls[0..2], &calls[2..4], 0), 1);
+        let mut calls = vec![0, 1, 0, 1]; // missing stays missing
+        remap_big_loci(&mut calls, 2, &[(1, 0, 6_000_000_000)]);
+        assert_eq!(calls[0], 0);
+        assert_eq!(distance(&calls[0..2], &calls[2..4], 0), 0);
     }
 
     #[test]

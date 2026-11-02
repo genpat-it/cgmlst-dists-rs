@@ -98,6 +98,11 @@ Gzip is opt-in (a `.gz` output name, or `-z/--gzip`); the default is plain text.
 where the two alleles differ and **both are present** (non-missing). The
 chewBBACA `INF-` prefix is stripped and missing calls are treated as absent.
 
+Allele ids are read as 64-bit unsigned integers, so **chewBBACA hashed profiles**
+(CRC32 hashes up to 4 294 967 295) work. Non-numeric tokens — chewBBACA classes
+(`LNF`, `PLOT3`, `ASM`, …) and `*N` novel alleles — are treated as missing, as in
+tseemann `cgmlst-dists`.
+
 ## Benchmarks
 
 Measured on an 80-core box, computing the **full** matrix (identical output on
@@ -117,6 +122,8 @@ the C inner loop stays scalar (an early-`return` inside the loop plus per-elemen
 Output is verified **byte-identical** to both `cgmlst-dists-py` and
 `tseemann/cgmlst-dists` (with its distance cap disabled) on clean data and on
 data containing `INF-` prefixes and missing calls.
+On chewBBACA hashed profiles it matches `tseemann/cgmlst-dists` on all pairs;
+cgmlst-dists-py currently mis-reads hashes above 2^31, so the two differ there.
 
 ## Credits
 
