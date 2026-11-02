@@ -105,17 +105,31 @@ tseemann `cgmlst-dists`.
 
 ## Benchmarks
 
-Measured on an 80-core box, computing the **full** matrix (identical output on
-all tools; tseemann run with `-x` disabled so it computes the same thing).
+Full matrix on an 80-core x86-64 box with AVX-512; both tools produce
+md5-identical output. tseemann `cgmlst-dists` 0.6.0 is built with its Makefile
+(`-Ofast -fopenmp`) and run with `-j` = core count and `-x 100000` (distance cap
+disabled, so it computes the same thing). Best of three.
 
-| dataset | **cgmlst-dists-rs** | tseemann `cgmlst-dists` (C) | cgmlst-dists-py (CPU) | cgmlst-dists-py (GPU, L4) |
-|---------|--------------------:|----------------------------:|----------------------:|--------------------------:|
-| 5 000 × 2 000 | **0.41 s** | 3.1 s | 5.0 s | — |
-| 50 000 × 5 000 | **~100 s** | 610 s | 782 s | 411 s |
+| dataset | threads | **cgmlst-dists-rs** | tseemann `cgmlst-dists` (C) |
+|---------|--------:|--------------------:|----------------------------:|
+| 2 099 × 1 748 (real Listeria, hashed) | 1 | **0.72 s** | 13.2 s |
+| 2 099 × 1 748 (real Listeria, hashed) | 80 | **0.06 s** | 1.0 s |
+| 20 000 × 3 000 (synthetic) | 80 | **5.2 s** | 106 s |
 
-Single-threaded, 2 000 × 2 000: **0.63 s** vs **8.5 s** for the C tool (~13×) —
-the C inner loop stays scalar (an early-`return` inside the loop plus per-element
-`abs()` block auto-vectorization), while this one runs AVX-512.
+The C inner loop stays scalar (an early `return` inside the loop plus
+per-element `abs()` block auto-vectorization), while this one runs AVX-512.
+
+### Reproduce
+
+No large datasets are shipped; generate them:
+
+```bash
+python3 scripts/generate_profiles.py -n 20000 -l 3000 -o bench.tsv
+python3 scripts/generate_profiles.py -n 20000 -l 3000 --hashed -o bench_hashed.tsv
+time cgmlst-dists -i bench.tsv -o rs.tsv
+time cgmlst-dists -i bench_hashed.tsv -o rs_hashed.tsv
+md5sum rs.tsv rs_hashed.tsv     # identical: same profiles, CRC32 ids
+```
 
 ## Correctness
 

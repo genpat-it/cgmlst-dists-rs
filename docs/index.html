@@ -137,6 +137,14 @@ docker run --rm -u "$(id -u):$(id -g)" -v "$(pwd):/data" \
       <tr><td>20 000 × 3 000 (synthetic)</td><td>80</td><td class="num win">5.2 s</td><td class="num">106 s</td><td class="num">20×</td></tr>
     </tbody>
   </table></div>
+  <h3>Reproduce</h3>
+  <p>No large datasets are shipped; generate them with the script in the repository
+  (Python standard library only):</p>
+<pre><code>python3 scripts/generate_profiles.py -n 20000 -l 3000 -o bench.tsv
+python3 scripts/generate_profiles.py -n 20000 -l 3000 --hashed -o bench_hashed.tsv
+time cgmlst-dists -i bench.tsv -o rs.tsv
+time cgmlst-dists -i bench_hashed.tsv -o rs_hashed.tsv
+md5sum rs.tsv rs_hashed.tsv     # identical: same profiles, CRC32 ids</code></pre>
   <p class="small">tseemann also cannot read the 6 785-locus wgMLST table from the same study:
   its 100 000-character line buffer is shorter than the header.</p>
 </section>
