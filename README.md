@@ -4,12 +4,15 @@
 [![CI](https://github.com/genpat-it/cgmlst-dists-rs/actions/workflows/ci.yml/badge.svg)](https://github.com/genpat-it/cgmlst-dists-rs/actions/workflows/ci.yml)
 [![Docker](https://img.shields.io/badge/docker-ghcr.io-blue?logo=docker)](https://github.com/genpat-it/cgmlst-dists-rs/pkgs/container/cgmlst-dists-rs)
 [![License](https://img.shields.io/badge/license-GPL--3.0-blue.svg)](LICENSE)
+[![Website](https://img.shields.io/badge/website-genpat--it.github.io-0a7563)](https://genpat-it.github.io/cgmlst-dists-rs/)
 
 Ultra-fast pairwise **cgMLST Hamming distance matrix** from chewBBACA allele
 call tables — a Rust port of
 [cgmlst-dists](https://github.com/tseemann/cgmlst-dists) by Torsten Seemann (via
 [cgmlst-dists-py](https://github.com/genpat-it/cgmlst-dists-py)), producing
 **byte-identical output** while running several times faster.
+
+**Website:** https://genpat-it.github.io/cgmlst-dists-rs/
 
 > **Independent port.** This is not the original tool and is not affiliated with
 > or endorsed by its author. `cgmlst-dists` is GPL-3.0, and so is this port.

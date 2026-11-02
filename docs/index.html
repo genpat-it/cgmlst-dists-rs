@@ -2,182 +2,207 @@
 <html lang="en">
 <head>
 <meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <title>cgmlst-dists-rs</title>
-<meta name="description" content="Ultra-fast pairwise cgMLST Hamming distance matrix from chewBBACA allele calls, in Rust.">
+<meta name="description" content="Ultra-fast pairwise cgMLST distance matrix from chewBBACA allele calls: a Rust port of cgmlst-dists.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Archivo:wdth,wght@62..125,500..900&family=IBM+Plex+Sans:ital,wght@0,400;0,500;0,600;1,400&family=JetBrains+Mono:wght@400;600&display=swap">
 <style>
+/* Layout: lab-notebook column. Section names sit in a left margin, content on
+   the right; the hero pairs the real input table with the matrix it produces. */
 :root{
-  --bg:#fbfaf7; --fg:#1d1f22; --muted:#5d636b; --line:#e3e0d8; --card:#ffffff;
-  --accent:#b4531f; --accent-soft:#f6e7dc; --code:#f2efe8; --good:#2f7a45;
-  color-scheme: light;
+  --paper:#f4f6f5; --surface:#ffffff; --ink:#14201d; --muted:#566762; --rule:#d7e0dc;
+  --accent:#0a7563; --accent-soft:#dcefe9; --heat-lo:#e6eeeb; --heat-hi:#d9822b;
+  --display:"Archivo","Arial Narrow",system-ui,sans-serif;
+  --body:"IBM Plex Sans",system-ui,-apple-system,"Segoe UI",sans-serif;
+  --mono:"JetBrains Mono",ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;
+  color-scheme:light;
 }
 @media (prefers-color-scheme: dark){
-  :root{ --bg:#15171a; --fg:#e8e6e1; --muted:#a2a7ae; --line:#2c3036; --card:#1c1f23;
-    --accent:#e88a52; --accent-soft:#33241b; --code:#22262b; --good:#6cc08a; color-scheme: dark; }
+  :root:not([data-theme="light"]){
+    --paper:#0d1412; --surface:#131c19; --ink:#e2eae7; --muted:#92a49f; --rule:#25332f;
+    --accent:#43c6ab; --accent-soft:#133a33; --heat-lo:#1a2623; --heat-hi:#e3953f;
+    color-scheme:dark;
+  }
+}
+:root[data-theme="dark"]{
+  --paper:#0d1412; --surface:#131c19; --ink:#e2eae7; --muted:#92a49f; --rule:#25332f;
+  --accent:#43c6ab; --accent-soft:#133a33; --heat-lo:#1a2623; --heat-hi:#e3953f;
+  color-scheme:dark;
 }
 *{box-sizing:border-box}
-body{margin:0;background:var(--bg);color:var(--fg);
-  font:16px/1.6 system-ui,-apple-system,"Segoe UI",Roboto,sans-serif}
-.wrap{max-width:860px;margin:0 auto;padding:0 20px}
-header{border-bottom:1px solid var(--line);padding-block:56px 40px}
-h1{font-size:2.4rem;line-height:1.15;margin:0 0 12px;letter-spacing:-.02em}
-h1 span{color:var(--accent)}
-.lede{font-size:1.15rem;color:var(--muted);margin:0 0 24px;max-width:640px}
-.links{display:flex;flex-wrap:wrap;gap:10px}
-.links a{display:inline-block;padding:8px 14px;border:1px solid var(--line);border-radius:8px;
-  color:var(--fg);text-decoration:none;background:var(--card);font-size:.95rem}
-.links a.primary{background:var(--accent);border-color:var(--accent);color:#fff}
-section{padding-block:36px;border-bottom:1px solid var(--line)}
-h2{font-size:1.4rem;margin:0 0 16px;letter-spacing:-.01em}
-h3{font-size:1.05rem;margin:22px 0 8px}
-p{margin:0 0 12px}
-a{color:var(--accent)}
-code{font:.9em ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;background:var(--code);
-  padding:1px 5px;border-radius:4px}
-pre{background:var(--code);border-radius:8px;padding:14px 16px;overflow-x:auto;margin:0 0 14px}
-pre code{background:none;padding:0;font-size:.88rem;line-height:1.5}
-.tbl{overflow-x:auto;margin:0 0 12px}
-table{border-collapse:collapse;width:100%;font-size:.95rem}
-th,td{text-align:left;padding:8px 10px;border-bottom:1px solid var(--line);white-space:nowrap}
-th{color:var(--muted);font-weight:600}
-td.num,th.num{text-align:right;font-variant-numeric:tabular-nums}
-td.win{color:var(--good);font-weight:600}
-.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:14px}
-.card{background:var(--card);border:1px solid var(--line);border-radius:10px;padding:16px}
-.card h3{margin-top:0}
-.note{background:var(--accent-soft);border-radius:10px;padding:14px 16px;margin:0 0 14px}
-.small{font-size:.88rem;color:var(--muted)}
-footer{padding-block:28px 48px;color:var(--muted);font-size:.9rem}
+body{margin:0;background:var(--paper);color:var(--ink);font:16px/1.6 var(--body);
+  padding-inline:20px;-webkit-font-smoothing:antialiased}
+.page{max-width:1040px;margin:0 auto}
+a{color:var(--accent);text-underline-offset:3px}
+a:focus-visible,button:focus-visible{outline:2px solid var(--accent);outline-offset:3px;border-radius:3px}
+code{font-family:var(--mono);font-size:.88em}
+
+.top{display:flex;flex-wrap:wrap;gap:8px 22px;align-items:baseline;justify-content:space-between;
+  padding-block:22px;border-bottom:1px solid var(--rule)}
+.top .mark{font:600 .95rem/1 var(--mono);color:var(--ink);text-decoration:none}
+.top nav{display:flex;flex-wrap:wrap;gap:6px 18px;font-size:.92rem}
+.top nav a{color:var(--muted);text-decoration:none}
+.top nav a:hover{color:var(--accent)}
+
+.hero{padding-block:56px 40px}
+.hero h1{font-family:var(--display);font-weight:850;font-stretch:118%;letter-spacing:-.02em;
+  font-size:clamp(2.4rem,6.4vw,4.6rem);line-height:.98;margin:0 0 18px;text-wrap:balance}
+.hero h1 span{color:var(--accent)}
+.thesis{font-size:1.2rem;line-height:1.5;max-width:62ch;margin:0 0 10px}
+.port{color:var(--muted);font-size:.93rem;max-width:66ch;margin:0}
+
+.figure{margin-top:40px;display:grid;grid-template-columns:minmax(0,1.35fr) auto minmax(0,1fr);
+  gap:20px;align-items:center}
+.panel{background:var(--surface);border:1px solid var(--rule);border-radius:6px;padding:16px 18px}
+.panel h2{font:600 .72rem/1 var(--mono);letter-spacing:.08em;text-transform:uppercase;
+  color:var(--muted);margin:0 0 12px}
+.scroll{overflow-x:auto}
+table.calls,table.matrix{border-collapse:collapse;font:400 .8rem/1.2 var(--mono);
+  font-variant-numeric:tabular-nums}
+table.calls th,table.calls td{padding:6px 9px;text-align:right;white-space:nowrap;
+  border-bottom:1px solid var(--rule)}
+table.calls th{color:var(--muted);font-weight:400}
+table.calls td.id,table.calls th.id{text-align:left;color:var(--ink)}
+table.calls td.novel{color:var(--heat-hi);font-weight:600}
+table.calls td.miss{color:var(--muted)}
+table.calls td.more,table.calls th.more{color:var(--muted)}
+.arrow{font:600 .8rem/1.3 var(--mono);color:var(--muted);text-align:center}
+.arrow b{display:block;font-size:1.6rem;color:var(--accent);font-weight:400}
+table.matrix th,table.matrix td{padding:9px 10px;text-align:right;white-space:nowrap}
+table.matrix th{color:var(--muted);font-weight:400}
+table.matrix td{color:var(--ink);transition:background-color .25s}
+table.matrix td.diag{color:var(--muted)}
+.switch{margin-top:14px;display:flex;gap:10px;align-items:center;font-size:.86rem;color:var(--muted)}
+.switch button{font:600 .8rem/1 var(--mono);padding:7px 11px;border-radius:999px;cursor:pointer;
+  border:1px solid var(--rule);background:transparent;color:var(--ink)}
+.switch button[aria-pressed="true"]{background:var(--accent);border-color:var(--accent);color:var(--paper)}
+.cap{grid-column:1/-1;color:var(--muted);font-size:.86rem;margin:0}
+
+section.row{display:grid;grid-template-columns:180px minmax(0,1fr);gap:12px 40px;
+  padding-block:40px;border-top:1px solid var(--rule)}
+section.row > h2{font:600 .78rem/1.5 var(--mono);letter-spacing:.08em;text-transform:uppercase;
+  color:var(--muted);margin:4px 0 0}
+.body{display:flex;flex-direction:column;gap:14px;min-width:0}
+.body p{margin:0;max-width:68ch}
+.body h3{font:700 1.15rem/1.3 var(--display);font-stretch:108%;margin:10px 0 0}
+pre{margin:0;background:var(--surface);border:1px solid var(--rule);border-radius:6px;
+  padding:14px 16px;overflow-x:auto;font:400 .84rem/1.6 var(--mono)}
+pre .c{color:var(--muted)}
+.install{display:grid;grid-template-columns:110px minmax(0,1fr);gap:10px 18px;align-items:start}
+.install dt{font-weight:600;padding-top:13px}
+.install dd{margin:0;display:flex;flex-direction:column;gap:6px;min-width:0}
+.install dd small{color:var(--muted);font-size:.86rem}
+table.plain{border-collapse:collapse;width:100%;font-size:.93rem}
+table.plain th,table.plain td{text-align:left;padding:9px 12px 9px 0;border-bottom:1px solid var(--rule);
+  vertical-align:top}
+table.plain th{color:var(--muted);font-weight:500;font-size:.82rem;white-space:nowrap}
+table.plain td:first-child{font-family:var(--mono);font-size:.84rem;white-space:nowrap}
+
+.bars{display:flex;flex-direction:column;gap:22px}
+.group h3{margin:0 0 8px;font:600 .9rem/1.3 var(--body)}
+.bar{display:grid;grid-template-columns:200px minmax(0,1fr) 64px;gap:12px;align-items:center;
+  padding-block:4px;font-size:.9rem}
+.bar .track{height:14px;background:var(--heat-lo);border-radius:2px;overflow:hidden}
+.bar .fill{height:100%;background:var(--muted);border-radius:2px}
+.bar.us .fill{background:var(--accent)}
+.bar.us .name{font-weight:600}
+.bar .val{font:600 .84rem/1 var(--mono);text-align:right;font-variant-numeric:tabular-nums}
+.note{color:var(--muted);font-size:.88rem}
+
+.family{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:14px}
+.family div{border-top:3px solid var(--rule);padding-top:12px}
+.family div.this{border-top-color:var(--accent)}
+.family b{display:block;font-family:var(--mono);font-size:.9rem;margin-bottom:4px}
+.family span{color:var(--muted);font-size:.9rem}
+
+footer{border-top:1px solid var(--rule);padding-block:26px 48px;color:var(--muted);font-size:.88rem;
+  display:flex;flex-wrap:wrap;gap:6px 18px;justify-content:space-between}
+
+@media (max-width:820px){
+  .figure{grid-template-columns:minmax(0,1fr)}
+  .arrow b{transform:rotate(90deg)}
+  section.row{grid-template-columns:minmax(0,1fr);padding-block:30px}
+  .install{grid-template-columns:minmax(0,1fr)}
+  .install dt{padding-top:0}
+  .bar{grid-template-columns:minmax(0,1fr) 60px}
+  .bar .name{grid-column:1/-1}
+  .family{grid-template-columns:minmax(0,1fr)}
+}
+@media (prefers-reduced-motion:reduce){table.matrix td{transition:none}}
 </style>
 </head>
 <body>
-<div class="wrap">
-
-<header>
+<div class="page">
+<header class="top"><a class="mark" href="https://github.com/genpat-it/cgmlst-dists-rs">cgmlst-dists-rs</a><nav><a href="https://github.com/genpat-it/cgmlst-dists-rs">GitHub</a><a href="https://crates.io/crates/cgmlst-dists-rs">crates.io</a><a href="https://github.com/genpat-it/cgmlst-dists-rs/pkgs/container/cgmlst-dists-rs">Docker</a><a href="https://genpat-it.github.io/cgmlst-dists-py/">cgmlst-dists-py</a></nav></header>
+<div class="hero">
   <h1>cgmlst-dists<span>-rs</span></h1>
-  <p class="lede">Ultra-fast pairwise cgMLST Hamming distance matrix from chewBBACA allele-call
-  tables: a Rust port of <a href="https://github.com/tseemann/cgmlst-dists">cgmlst-dists</a> by
-  Torsten Seemann, with a SIMD distance kernel and multi-core everything.</p>
-  <p class="small">Independent port, not affiliated with or endorsed by the original author.
-  cgmlst-dists is GPL-3.0, and so is this port.</p>
-  <div class="links">
-    <a class="primary" href="https://github.com/genpat-it/cgmlst-dists-rs">GitHub</a>
-    <a href="https://crates.io/crates/cgmlst-dists-rs">crates.io</a>
-    <a href="https://github.com/genpat-it/cgmlst-dists-rs/pkgs/container/cgmlst-dists-rs">Docker (ghcr.io)</a>
-    <a href="https://genpat-it.github.io/cgmlst-dists-py/">cgmlst-dists-py</a>
-  </div>
-</header>
-
-<section id="install">
-  <h2>Install</h2>
-  <div class="grid">
-    <div class="card">
-      <h3>Docker</h3>
-      <pre><code>docker pull ghcr.io/genpat-it/cgmlst-dists-rs</code></pre>
-      <p class="small">Debian slim, portable AVX2 build (<code>x86-64-v3</code>).</p>
-    </div>
-    <div class="card">
-      <h3>Bioconda</h3>
-      <pre><code>conda install -c bioconda \
-  cgmlst-dists-rs</code></pre>
-      <p class="small">Binary named <code>cgmlst-dists-rs</code>, so it can live next to the original.</p>
-    </div>
-    <div class="card">
-      <h3>crates.io</h3>
-      <pre><code>cargo install cgmlst-dists-rs</code></pre>
-      <p class="small">Add <code>RUSTFLAGS="-C target-cpu=native"</code> for AVX-512.</p>
-    </div>
-    <div class="card">
-      <h3>From source</h3>
-      <pre><code>git clone https://github.com/genpat-it/cgmlst-dists-rs
-cd cgmlst-dists-rs
-RUSTFLAGS="-C target-cpu=native" \
-  cargo build --release</code></pre>
-    </div>
-  </div>
-</section>
-
-<section id="usage">
-  <h2>Usage</h2>
-<pre><code>cgmlst-dists -i chewbbaca.tab -o distances.tsv
-cgmlst-dists -i chewbbaca.tab -m lower-tri > dist.tsv
-cgmlst-dists -i chewbbaca.tab -o distances.tsv.gz     # parallel gzip
-
-docker run --rm -u "$(id -u):$(id -g)" -v "$(pwd):/data" \
-  ghcr.io/genpat-it/cgmlst-dists-rs -i /data/chewbbaca.tab -o /data/distances.tsv</code></pre>
-  <p>Distance = number of loci where the two alleles differ and <strong>both are present</strong>.
-  A leading <code>INF-</code> is stripped; chewBBACA classes (<code>LNF</code>, <code>PLOT3</code>,
-  <code>ASM</code>, …), <code>-</code>, empty and <code>0</code> are missing.
-  Full option list in the <a href="https://github.com/genpat-it/cgmlst-dists-rs#usage">README</a>.</p>
-</section>
-
-<section id="hashed">
-  <h2>chewBBACA hashed profiles</h2>
-  <p>Hashed profiles store CRC32 hashes as allele ids, up to 4&nbsp;294&nbsp;967&nbsp;295. Alleles
-  are read as 64-bit integers, so every hash is kept. Earlier releases (≤&nbsp;0.1.2) read alleles
-  as 32-bit signed integers and silently treated every hash above 2<sup>31</sup> as missing —
-  about half of the calls.</p>
-  <div class="tbl"><table>
-    <thead><tr><th>Listeria, Pasteur cgMLST (1748 loci), 2099 genomes</th>
-      <th class="num">≤ 0.1.2</th><th class="num">fixed</th></tr></thead>
-    <tbody>
-      <tr><td>ERR10109288 vs ERR10109289</td><td class="num">282</td><td class="num win">1196</td></tr>
-      <tr><td>ERR10109289 vs ERR10109291</td><td class="num">11</td><td class="num win">35</td></tr>
-      <tr><td>pairs matching an independent reference</td><td class="num">2&nbsp;526 / 2.2 M</td><td class="num win">all 2.2 M</td></tr>
-    </tbody>
-  </table></div>
-  <p><code>*N</code> novel alleles (inferred by chewBBACA but not added to the schema) are missing
-  by default, as in tseemann. <code>-N/--novel-as-allele</code> compares them as alleles within
-  each locus — on the pair above 1234 and 59 instead of 1196 and 35. Their numbering is local to
-  one chewBBACA run, so use it on tables from a single run.</p>
-  <p class="note">Fixed in 0.1.3. On these data the
-  output is md5-identical to tseemann <code>cgmlst-dists</code> 0.6.0.</p>
-</section>
-
-<section id="benchmarks">
-  <h2>Benchmarks</h2>
-  <p>Full matrix, same output (md5-identical) from both tools. 80-core x86-64 with AVX-512;
-  tseemann <code>cgmlst-dists</code> 0.6.0 built with its Makefile (<code>-Ofast -fopenmp</code>),
-  run with <code>-j</code> set to the core count and <code>-x 100000</code> so it computes the same
-  thing. Best of three.</p>
-  <div class="tbl"><table>
-    <thead><tr><th>dataset</th><th>threads</th><th class="num">cgmlst-dists-rs</th>
-      <th class="num">tseemann (C)</th><th class="num">speed-up</th></tr></thead>
-    <tbody>
-      <tr><td>2 099 × 1 748 (real, hashed)</td><td>1</td><td class="num win">0.72 s</td><td class="num">13.2 s</td><td class="num">18×</td></tr>
-      <tr><td>2 099 × 1 748 (real, hashed)</td><td>80</td><td class="num win">0.06 s</td><td class="num">1.0 s</td><td class="num">16×</td></tr>
-      <tr><td>20 000 × 3 000 (synthetic)</td><td>80</td><td class="num win">5.2 s</td><td class="num">106 s</td><td class="num">20×</td></tr>
-    </tbody>
-  </table></div>
-  <h3>Reproduce</h3>
-  <p>No large datasets are shipped; generate them with the script in the repository
-  (Python standard library only):</p>
-<pre><code>python3 scripts/generate_profiles.py -n 20000 -l 3000 -o bench.tsv
-python3 scripts/generate_profiles.py -n 20000 -l 3000 --hashed -o bench_hashed.tsv
-time cgmlst-dists -i bench.tsv -o rs.tsv
-time cgmlst-dists -i bench_hashed.tsv -o rs_hashed.tsv
-md5sum rs.tsv rs_hashed.tsv     # identical: same profiles, CRC32 ids</code></pre>
-  <p class="small">tseemann also cannot read the 6 785-locus wgMLST table from the same study:
-  its 100 000-character line buffer is shorter than the header.</p>
-</section>
-
-<section id="why">
-  <h2>Why it is fast</h2>
-  <ul>
-    <li><strong>SIMD kernel.</strong> The inner loop (<code>differ &amp;&amp; both present</code>) is
-    written so LLVM vectorizes it: 16 loci per AVX-512 instruction.</li>
-    <li><strong>Half the work.</strong> Only the upper triangle is computed and stored; the
-    output mirrors it.</li>
-    <li><strong>Parallel everywhere.</strong> Parsing, distances (rayon work stealing over the
-    triangular workload), row formatting and optional gzip all use every core.</li>
-  </ul>
-</section>
-
-<footer>
-  GPL-3.0-only · <a href="https://github.com/genpat-it">genpat-it</a> ·
-  Based on <a href="https://github.com/tseemann/cgmlst-dists">tseemann/cgmlst-dists</a>
-</footer>
-
+  <p class="thesis">Pairwise cgMLST distance matrix from chewBBACA allele calls. A Rust port of Torsten Seemann's cgmlst-dists that gives the same matrix, md5 for md5, 16 to 20 times faster on the same machine.</p>
+  <p class="port">Independent port, not affiliated with or endorsed by the original author.
+  <a href="https://github.com/tseemann/cgmlst-dists">cgmlst-dists</a> is GPL-3.0, and so is this port.</p>
+  
+<div class="figure">
+  <div class="panel"><h2>Input · chewBBACA hashed calls</h2><div class="scroll"><table class="calls"><thead><tr><th class="id">FILE</th><th>00023625</th><th>00023627</th><th>00023650</th><th>00023681</th><th class="more">+1 744</th></tr></thead><tbody><tr><td class="id">ERR10109288</td><td>1944318771</td><td>3512531761</td><td class="novel">*486</td><td>3832204244</td><td class="more">…</td></tr><tr><td class="id">ERR10109289</td><td class="novel">*557</td><td>2609179212</td><td>2921545199</td><td class="miss">0</td><td class="more">…</td></tr><tr><td class="id">ERR10109291</td><td>3145974256</td><td>2609179212</td><td>2921545199</td><td class="miss">0</td><td class="more">…</td></tr></tbody></table></div></div>
+  <div class="arrow" aria-hidden="true"><b>→</b>cgmlst-dists</div>
+  <div class="panel"><h2>Output · allelic distances</h2><div class="scroll"><table class="matrix"><thead><tr><th></th><th>88</th><th>89</th><th>91</th></tr></thead><tbody><tr><th>…88</th><td class="diag">0</td><td data-i="0" data-j="1" style="background-color:color-mix(in oklab, var(--heat-hi) 91%, var(--heat-lo))">1 196</td><td data-i="0" data-j="2" style="background-color:color-mix(in oklab, var(--heat-hi) 91%, var(--heat-lo))">1 199</td></tr><tr><th>…89</th><td data-i="1" data-j="0" style="background-color:color-mix(in oklab, var(--heat-hi) 91%, var(--heat-lo))">1 196</td><td class="diag">0</td><td data-i="1" data-j="2" style="background-color:color-mix(in oklab, var(--heat-hi) 3%, var(--heat-lo))">35</td></tr><tr><th>…91</th><td data-i="2" data-j="0" style="background-color:color-mix(in oklab, var(--heat-hi) 91%, var(--heat-lo))">1 199</td><td data-i="2" data-j="1" style="background-color:color-mix(in oklab, var(--heat-hi) 3%, var(--heat-lo))">35</td><td class="diag">0</td></tr></tbody></table></div>
+    <div class="switch"><button id="novel" type="button" aria-pressed="false">-N</button>
+      <span id="novel-state">*N treated as missing (default)</span></div></div>
+  <p class="cap">Three <i>Listeria monocytogenes</i> genomes, Pasteur cgMLST scheme (1&#8239;748 loci).
+  Allele ids are CRC32 hashes, up to 4&#8239;294&#8239;967&#8239;295. <code>*557</code> and
+  <code>*486</code> are novel alleles; <code>0</code> is a missing call. A distance counts the loci
+  where both genomes have a call and the calls differ.</p>
 </div>
+</div>
+<section class="row" id="install"><h2>Install</h2><div class="body"><dl class="install">
+<dt>Bioconda</dt><dd><pre>conda install -c bioconda cgmlst-dists-rs</pre>
+<small>The conda binary is named <code>cgmlst-dists-rs</code>, so it can share an environment with the original <code>cgmlst-dists</code>.</small></dd>
+<dt>Docker</dt><dd><pre>docker pull ghcr.io/genpat-it/cgmlst-dists-rs</pre><small>Debian slim, portable AVX2 build.</small></dd>
+<dt>Cargo</dt><dd><pre>RUSTFLAGS="-C target-cpu=native" cargo install cgmlst-dists-rs</pre>
+<small><code>target-cpu=native</code> enables AVX-512 where the CPU has it.</small></dd>
+</dl></div></section><section class="row" id="run"><h2>Run</h2><div class="body"><pre>cgmlst-dists -i chewbbaca.tsv -o distances.tsv
+cgmlst-dists -i chewbbaca.tsv -m lower-tri &gt; distances.tsv
+cgmlst-dists -i chewbbaca.tsv -o distances.tsv.gz   <span class="c"># parallel gzip</span>
+cgmlst-dists -i chewbbaca.tsv -N -o distances.tsv   <span class="c"># count *N novel alleles</span></pre>
+<p>All options are in the <a href="https://github.com/genpat-it/cgmlst-dists-rs#usage">README</a>.</p></div></section><section class="row" id="cells"><h2>Reading the table</h2><div class="body"><div class="scroll"><table class="plain"><thead><tr><th>cell</th><th>read as</th></tr></thead><tbody><tr><td>3145974256</td><td>an allele id. Any non-negative integer up to 2<sup>64</sup>&minus;1, so CRC32 hashes work</td></tr><tr><td>INF-42</td><td>allele 42. chewBBACA's <code>INF-</code> prefix for inferred alleles is stripped</td></tr><tr><td>*486</td><td>a novel allele, not yet in the schema. Missing by default; compared as an allele with <code>-N</code></td></tr><tr><td>LNF, PLOT3, PLOT5, ASM, ALM, NIPH, NIPHEM, LOTSC</td><td>chewBBACA classes for loci without a clean call: missing</td></tr><tr><td>0, -, empty</td><td>missing (<code>-n</code> sets the missing character)</td></tr></tbody></table></div>
+<p>Use <code>-N</code> only on a table from a single chewBBACA run: the <code>*N</code> numbers are local to the run that assigned them.</p>
+<p class="note">Releases up to 0.1.2 parsed alleles as 32-bit signed integers and treated every hash above 2<sup>31</sup> as missing,
+about half of a hashed profile. On the genomes above they reported 282 and 11 instead of 1&#8239;196 and 35. Fixed in 0.1.3.</p></div></section><section class="row" id="speed"><h2>Speed</h2><div class="body"><div class="bars"><div class="group"><h3>Real data: 2 099 genomes × 1 748 loci, 1 thread</h3><div class="bar"><span class="name">cgmlst-dists (C) 0.6.0</span><span class="track"><span class="fill" style="display:block;width:100.00%"></span></span><span class="val">13.2 s</span></div><div class="bar us"><span class="name">cgmlst-dists-rs</span><span class="track"><span class="fill" style="display:block;width:5.45%"></span></span><span class="val">0.72 s</span></div></div><div class="group"><h3>Same data, 80 threads</h3><div class="bar"><span class="name">cgmlst-dists (C) 0.6.0</span><span class="track"><span class="fill" style="display:block;width:100.00%"></span></span><span class="val">1.0 s</span></div><div class="bar us"><span class="name">cgmlst-dists-rs</span><span class="track"><span class="fill" style="display:block;width:6.00%"></span></span><span class="val">0.06 s</span></div></div><div class="group"><h3>Synthetic: 20 000 genomes × 3 000 loci, 80 threads</h3><div class="bar"><span class="name">cgmlst-dists (C) 0.6.0</span><span class="track"><span class="fill" style="display:block;width:100.00%"></span></span><span class="val">106 s</span></div><div class="bar us"><span class="name">cgmlst-dists-rs</span><span class="track"><span class="fill" style="display:block;width:4.91%"></span></span><span class="val">5.2 s</span></div></div></div>
+<p class="note">Full matrix, best of three, on an 80-core x86-64 machine with AVX-512. The C tool was built with its
+Makefile (<code>-Ofast -fopenmp</code>) and run with <code>-j</code> set to the core count and <code>-x 100000</code>, so both compute
+the same matrix; their outputs have the same md5. Each group is drawn to its own scale.</p>
+<pre><span class="c"># reproduce: no datasets are shipped, generate them</span>
+python3 scripts/generate_profiles.py -n 20000 -l 3000 -o bench.tsv
+time cgmlst-dists -i bench.tsv -o out.tsv</pre>
+<p>The distance loop is written so LLVM vectorizes it: 16 loci per AVX-512 instruction. Only the upper triangle is
+computed, and parsing, distances and output formatting all run on every core.</p></div></section><section class="row" id="family"><h2>Related</h2><div class="body"><div class="family"><div><b><a href="https://github.com/tseemann/cgmlst-dists">cgmlst-dists</a></b><span>The original, in C, by Torsten Seemann. Bioconda <code>cgmlst-dists</code>.</span></div><div><b><a href="https://genpat-it.github.io/cgmlst-dists-py/">cgmlst-dists-py</a></b><span>Python port with GrapeTree missing-data handlers, <code>--dedup</code> and an optional GPU path.</span></div><div class="this"><b><a href="https://genpat-it.github.io/cgmlst-dists-rs/">cgmlst-dists-rs</a></b><span>Rust port for speed: SIMD kernel, all cores, half-matrix computation.</span></div></div></div></section>
+<footer><span>GPL-3.0-only · <a href="https://github.com/genpat-it">genpat-it</a></span>
+<span>Version 0.1.3 · <a href="https://github.com/genpat-it/cgmlst-dists-rs/blob/main/CHANGELOG.md">changelog</a></span></footer>
+</div>
+
+<script>
+(function(){
+  var D = {"off": [[0, 1196, 1199], [1196, 0, 35], [1199, 35, 0]], "on": [[0, 1234, 1233], [1234, 0, 59], [1233, 59, 0]]}, N = 1748;
+  var btn = document.getElementById('novel');
+  function paint(on){
+    var m = D[on ? 'on' : 'off'];
+    document.querySelectorAll('table.matrix td[data-i]').forEach(function(td){
+      var v = m[+td.dataset.i][+td.dataset.j];
+      td.textContent = v.toLocaleString('en-US').replace(/,/g, '\u202f');
+      var p = Math.round(Math.min(1, v / (N * 0.75)) * 100);
+      td.style.backgroundColor = 'color-mix(in oklab, var(--heat-hi) ' + p + '%, var(--heat-lo))';
+    });
+    document.querySelectorAll('table.calls td.novel').forEach(function(td){
+      td.title = on ? 'novel allele, compared with -N' : 'novel allele, missing by default';
+    });
+    btn.setAttribute('aria-pressed', on ? 'true' : 'false');
+    document.getElementById('novel-state').textContent = on
+      ? '*N compared as alleles' : '*N treated as missing (default)';
+  }
+  btn.addEventListener('click', function(){ paint(btn.getAttribute('aria-pressed') !== 'true'); });
+  paint(false);
+})();
+</script>
+
 </body>
 </html>
