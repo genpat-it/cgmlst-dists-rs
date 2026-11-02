@@ -137,7 +137,7 @@ Output is verified **byte-identical** to both `cgmlst-dists-py` and
 `tseemann/cgmlst-dists` (with its distance cap disabled) on clean data and on
 data containing `INF-` prefixes and missing calls.
 On chewBBACA hashed profiles it matches `tseemann/cgmlst-dists` on all pairs;
-cgmlst-dists-py currently mis-reads hashes above 2^31, so the two differ there.
+cgmlst-dists-py ≤ 0.1.7 mis-reads hashes above 2^31 (fixed in its next release).
 
 ## Credits
 
