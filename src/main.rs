@@ -50,6 +50,13 @@ struct Args {
     #[arg(short = 'r', long, default_value_t = false)]
     skip_input_replacements: bool,
 
+    /// Count chewBBACA `*N` novel alleles (inferred, not added to the schema) as
+    /// alleles, compared by their text within each locus. Default: missing, as
+    /// in tseemann cgmlst-dists. The `*N` numbering is local to one chewBBACA
+    /// run, so use this only on tables from a single run.
+    #[arg(short = 'N', long, default_value_t = false)]
+    novel_as_allele: bool,
+
     /// Keep only loci with at least this % of non-missing calls (0-100)
     #[arg(short = 'L', long)]
     locus_completeness: Option<f64>,
@@ -108,25 +115,51 @@ fn parse_allele(cell: &str, skip_repl: bool, missing: &str) -> Result<u64, ()> {
     }
 }
 
-/// Re-encode loci holding alleles > u32::MAX: each such locus gets dense ids
-/// 1..k (0 stays missing), which preserves equality within the locus — the only
-/// thing the distance depends on. `big` lists (row, locus, value) for every
-/// cell whose value did not fit in u32 (its slot in `calls` is a placeholder).
-fn remap_big_loci(calls: &mut [u32], n_loci: usize, big: &[(usize, usize, u64)]) {
+/// A `*N` novel allele: the number after the `*`, or None if `cell` is not one.
+#[inline]
+fn parse_novel(cell: &str) -> Option<u64> {
+    let n = cell.trim().strip_prefix('*')?;
+    if !n.is_empty() && n.bytes().all(|b| b.is_ascii_digit()) {
+        n.parse().ok()
+    } else {
+        None
+    }
+}
+
+/// An allele that cannot be stored directly as a u32 id.
+#[derive(Clone, Copy, PartialEq, Eq, Hash)]
+enum Special {
+    /// integer id above u32::MAX
+    Big(u64),
+    /// `*N` novel allele (with --novel-as-allele)
+    Novel(u64),
+}
+
+/// Re-encode loci holding special alleles: each such locus gets dense ids 1..k
+/// (0 stays missing), which preserves equality within the locus — the only
+/// thing the distance depends on. `special` lists (row, locus, allele) for every
+/// cell that could not be stored as is (its slot in `calls` is a placeholder).
+fn remap_special_loci(calls: &mut [u32], n_loci: usize, special: &[(usize, usize, Special)]) {
     use std::collections::HashMap;
-    let mut by_locus: HashMap<usize, Vec<(usize, u64)>> = HashMap::new();
-    for &(row, k, v) in big {
+    let mut by_locus: HashMap<usize, Vec<(usize, Special)>> = HashMap::new();
+    for &(row, k, v) in special {
         by_locus.entry(k).or_default().push((row, v));
     }
     let n = calls.len() / n_loci.max(1);
+    // An integer id that fit in u32 and a special allele are different keys.
+    #[derive(PartialEq, Eq, Hash)]
+    enum Key {
+        Id(u32),
+        Special(Special),
+    }
     for (k, cells) in by_locus {
-        let mut col: Vec<u64> = (0..n).map(|i| calls[i * n_loci + k] as u64).collect();
+        let mut col: Vec<Key> = (0..n).map(|i| Key::Id(calls[i * n_loci + k])).collect();
         for (row, v) in cells {
-            col[row] = v;
+            col[row] = Key::Special(v);
         }
-        let mut ids: HashMap<u64, u32> = HashMap::new();
+        let mut ids: HashMap<Key, u32> = HashMap::new();
         for (i, v) in col.into_iter().enumerate() {
-            calls[i * n_loci + k] = if v == 0 {
+            calls[i * n_loci + k] = if v == Key::Id(0) {
                 0
             } else {
                 let next = ids.len() as u32 + 1;
@@ -281,11 +314,13 @@ fn main() {
 
     let skip_repl = args.skip_input_replacements;
     let missing = args.missing_char.as_str();
+    let novel_as_allele = args.novel_as_allele;
 
     // Values that fit in u32 (all of them in practice, CRC32 hashes included)
-    // go straight into the u32 matrix; larger ones are collected and their loci
-    // re-encoded afterwards, so the common case pays nothing extra.
-    let parsed: Vec<(&str, Vec<u32>, Vec<(usize, u64)>)> = data_lines
+    // go straight into the u32 matrix; larger ones (and `*N` novel alleles with
+    // --novel-as-allele) are collected and their loci re-encoded afterwards, so
+    // the common case pays nothing extra.
+    let parsed: Vec<(&str, Vec<u32>, Vec<(usize, Special)>)> = data_lines
         .par_iter()
         .map(|line| {
             let mut it = line.split(sep_ch);
@@ -297,11 +332,19 @@ fn main() {
                     eprintln!("error: sample {}: allele '{}' is an integer too large (> {})", id, cell.trim(), u64::MAX);
                     std::process::exit(1);
                 });
-                if v > u32::MAX as u64 {
-                    big.push((k, v));
-                    calls.push(u32::MAX);
+                let special = if v > u32::MAX as u64 {
+                    Some(Special::Big(v))
+                } else if v == 0 && novel_as_allele {
+                    parse_novel(cell).map(Special::Novel)
                 } else {
-                    calls.push(v as u32);
+                    None
+                };
+                match special {
+                    Some(sp) => {
+                        big.push((k, sp));
+                        calls.push(u32::MAX);
+                    }
+                    None => calls.push(v as u32),
                 }
             }
             calls.resize(n_loci, 0);
@@ -311,13 +354,13 @@ fn main() {
 
     let mut ids: Vec<&str> = parsed.iter().map(|(id, _, _)| *id).collect();
     let mut calls = vec![0u32; n * n_loci];
-    let mut big: Vec<(usize, usize, u64)> = Vec::new();
+    let mut big: Vec<(usize, usize, Special)> = Vec::new();
     for (row, (_, c, b)) in parsed.iter().enumerate() {
         calls[row * n_loci..(row + 1) * n_loci].copy_from_slice(&c[..n_loci]);
         big.extend(b.iter().filter(|&&(k, _)| k < n_loci).map(|&(k, v)| (row, k, v)));
     }
     if !big.is_empty() {
-        remap_big_loci(&mut calls, n_loci, &big);
+        remap_special_loci(&mut calls, n_loci, &big);
     }
     drop(parsed);
     if !args.silent {
@@ -496,23 +539,46 @@ mod tests {
     #[test]
     fn remap_values_above_u32() {
         // 2 rows x 3 loci; locus 1 holds values > u32::MAX
-        let big = [(0usize, 1usize, 5_000_000_000u64), (1, 1, 5_000_000_000)];
+        let big = [(0usize, 1usize, Special::Big(5_000_000_000)), (1, 1, Special::Big(5_000_000_000))];
         let mut calls = vec![7, u32::MAX, 0, 7, u32::MAX, 9];
-        remap_big_loci(&mut calls, 3, &big);
+        remap_special_loci(&mut calls, 3, &big);
         assert_eq!(distance(&calls[0..3], &calls[3..6], 0), 0); // equal big values
-        let big = [(0usize, 1usize, 5_000_000_000u64), (1, 1, 5_000_000_001)];
+        let big = [(0usize, 1usize, Special::Big(5_000_000_000)), (1, 1, Special::Big(5_000_000_001))];
         let mut calls = vec![7, u32::MAX, 0, 7, u32::MAX, 9];
-        remap_big_loci(&mut calls, 3, &big);
+        remap_special_loci(&mut calls, 3, &big);
         assert_eq!(distance(&calls[0..3], &calls[3..6], 0), 1); // different big values
         // a big value and a u32 value in the same locus must stay distinct
-        let big = [(0usize, 0usize, (u32::MAX as u64) + 1)];
+        let big = [(0usize, 0usize, Special::Big((u32::MAX as u64) + 1))];
         let mut calls = vec![u32::MAX, 1, u32::MAX, 1];
-        remap_big_loci(&mut calls, 2, &big);
+        remap_special_loci(&mut calls, 2, &big);
         assert_eq!(distance(&calls[0..2], &calls[2..4], 0), 1);
         let mut calls = vec![0, 1, 0, 1]; // missing stays missing
-        remap_big_loci(&mut calls, 2, &[(1, 0, 6_000_000_000)]);
+        remap_special_loci(&mut calls, 2, &[(1, 0, Special::Big(6_000_000_000))]);
         assert_eq!(calls[0], 0);
         assert_eq!(distance(&calls[0..2], &calls[2..4], 0), 0);
+    }
+
+    #[test]
+    fn novel_alleles() {
+        assert_eq!(parse_novel("*486"), Some(486));
+        assert_eq!(parse_novel(" *7 "), Some(7));
+        for c in ["486", "*", "*x", "*12a", "LNF", "INF-3", ""] {
+            assert_eq!(parse_novel(c), None, "{c}");
+        }
+        // rows: [*5, 7, *5], [*5, 7, *6]; locus 1 is a plain id
+        let sp = [
+            (0usize, 0usize, Special::Novel(5)),
+            (0, 2, Special::Novel(5)),
+            (1, 0, Special::Novel(5)),
+            (1, 2, Special::Novel(6)),
+        ];
+        let mut calls = vec![u32::MAX, 7, u32::MAX, u32::MAX, 7, u32::MAX];
+        remap_special_loci(&mut calls, 3, &sp);
+        assert_eq!(distance(&calls[0..3], &calls[3..6], 0), 1); // same *5, different *5/*6
+        // a novel *5 and an integer allele 5 at the same locus are different
+        let mut calls = vec![u32::MAX, 5];
+        remap_special_loci(&mut calls, 1, &[(0, 0, Special::Novel(5))]);
+        assert_eq!(distance(&calls[0..1], &calls[1..2], 0), 1);
     }
 
     #[test]

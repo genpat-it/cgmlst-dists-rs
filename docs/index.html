@@ -118,6 +118,10 @@ docker run --rm -u "$(id -u):$(id -g)" -v "$(pwd):/data" \
       <tr><td>pairs matching an independent reference</td><td class="num">2&nbsp;526 / 2.2 M</td><td class="num win">all 2.2 M</td></tr>
     </tbody>
   </table></div>
+  <p><code>*N</code> novel alleles (inferred by chewBBACA but not added to the schema) are missing
+  by default, as in tseemann. <code>-N/--novel-as-allele</code> compares them as alleles within
+  each locus — on the pair above 1234 and 59 instead of 1196 and 35. Their numbering is local to
+  one chewBBACA run, so use it on tables from a single run.</p>
   <p class="note">The fix is on <code>main</code> and ships in the next release. On these data the
   output is md5-identical to tseemann <code>cgmlst-dists</code> 0.6.0.</p>
 </section>

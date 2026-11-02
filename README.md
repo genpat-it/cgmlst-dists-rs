@@ -74,6 +74,7 @@ cgmlst-dists -i in.tab -m lower-tri -o dist.tsv       # triangular
 | `-x, --index-name` | top-left cell name [`cgmlst-dists`] |
 | `-n, --missing-char` | missing-data character [`-`] |
 | `-r, --skip-input-replacements` | do not strip the chewBBACA `INF-` prefix |
+| `-N, --novel-as-allele` | count `*N` novel alleles as alleles (default: missing) |
 | `-L, --locus-completeness` / `-S, --sample-completeness` | keep loci/samples with ≥ this % non-missing calls |
 | `-X, --max-dist` | stop counting beyond this distance (early-exit; 0 = no cap) |
 | `-f, --force` | skip the up-front memory feasibility check |
@@ -102,6 +103,11 @@ Allele ids are read as 64-bit unsigned integers, so **chewBBACA hashed profiles*
 (CRC32 hashes up to 4 294 967 295) work. Non-numeric tokens — chewBBACA classes
 (`LNF`, `PLOT3`, `ASM`, …) and `*N` novel alleles — are treated as missing, as in
 tseemann `cgmlst-dists`.
+
+`*N` (e.g. `*486`) is an allele chewBBACA inferred but did not add to the schema.
+With `-N/--novel-as-allele` these are compared as alleles within each locus (same
+`*N` = same allele), which recovers real differences. The `*N` numbering is local
+to one chewBBACA run, so use it only on a table from a single run.
 
 ## Benchmarks
 
