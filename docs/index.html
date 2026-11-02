@@ -1,0 +1,163 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>cgmlst-dists-rs</title>
+<meta name="description" content="Ultra-fast pairwise cgMLST Hamming distance matrix from chewBBACA allele calls, in Rust.">
+<style>
+:root{
+  --bg:#fbfaf7; --fg:#1d1f22; --muted:#5d636b; --line:#e3e0d8; --card:#ffffff;
+  --accent:#b4531f; --accent-soft:#f6e7dc; --code:#f2efe8; --good:#2f7a45;
+  color-scheme: light;
+}
+@media (prefers-color-scheme: dark){
+  :root{ --bg:#15171a; --fg:#e8e6e1; --muted:#a2a7ae; --line:#2c3036; --card:#1c1f23;
+    --accent:#e88a52; --accent-soft:#33241b; --code:#22262b; --good:#6cc08a; color-scheme: dark; }
+}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--fg);
+  font:16px/1.6 system-ui,-apple-system,"Segoe UI",Roboto,sans-serif}
+.wrap{max-width:860px;margin:0 auto;padding:0 20px}
+header{border-bottom:1px solid var(--line);padding-block:56px 40px}
+h1{font-size:2.4rem;line-height:1.15;margin:0 0 12px;letter-spacing:-.02em}
+h1 span{color:var(--accent)}
+.lede{font-size:1.15rem;color:var(--muted);margin:0 0 24px;max-width:640px}
+.links{display:flex;flex-wrap:wrap;gap:10px}
+.links a{display:inline-block;padding:8px 14px;border:1px solid var(--line);border-radius:8px;
+  color:var(--fg);text-decoration:none;background:var(--card);font-size:.95rem}
+.links a.primary{background:var(--accent);border-color:var(--accent);color:#fff}
+section{padding-block:36px;border-bottom:1px solid var(--line)}
+h2{font-size:1.4rem;margin:0 0 16px;letter-spacing:-.01em}
+h3{font-size:1.05rem;margin:22px 0 8px}
+p{margin:0 0 12px}
+a{color:var(--accent)}
+code{font:.9em ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;background:var(--code);
+  padding:1px 5px;border-radius:4px}
+pre{background:var(--code);border-radius:8px;padding:14px 16px;overflow-x:auto;margin:0 0 14px}
+pre code{background:none;padding:0;font-size:.88rem;line-height:1.5}
+.tbl{overflow-x:auto;margin:0 0 12px}
+table{border-collapse:collapse;width:100%;font-size:.95rem}
+th,td{text-align:left;padding:8px 10px;border-bottom:1px solid var(--line);white-space:nowrap}
+th{color:var(--muted);font-weight:600}
+td.num,th.num{text-align:right;font-variant-numeric:tabular-nums}
+td.win{color:var(--good);font-weight:600}
+.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:14px}
+.card{background:var(--card);border:1px solid var(--line);border-radius:10px;padding:16px}
+.card h3{margin-top:0}
+.note{background:var(--accent-soft);border-radius:10px;padding:14px 16px;margin:0 0 14px}
+.small{font-size:.88rem;color:var(--muted)}
+footer{padding-block:28px 48px;color:var(--muted);font-size:.9rem}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+<header>
+  <h1>cgmlst-dists<span>-rs</span></h1>
+  <p class="lede">Ultra-fast pairwise cgMLST Hamming distance matrix from chewBBACA allele-call
+  tables. A Rust reimplementation of cgmlst-dists, with a SIMD distance kernel and
+  multi-core everything.</p>
+  <div class="links">
+    <a class="primary" href="https://github.com/genpat-it/cgmlst-dists-rs">GitHub</a>
+    <a href="https://crates.io/crates/cgmlst-dists-rs">crates.io</a>
+    <a href="https://github.com/genpat-it/cgmlst-dists-rs/pkgs/container/cgmlst-dists-rs">Docker (ghcr.io)</a>
+    <a href="https://genpat-it.github.io/cgmlst-dists-py/">cgmlst-dists-py</a>
+  </div>
+</header>
+
+<section id="install">
+  <h2>Install</h2>
+  <div class="grid">
+    <div class="card">
+      <h3>Docker</h3>
+      <pre><code>docker pull ghcr.io/genpat-it/cgmlst-dists-rs</code></pre>
+      <p class="small">Debian slim, portable AVX2 build (<code>x86-64-v3</code>).</p>
+    </div>
+    <div class="card">
+      <h3>crates.io</h3>
+      <pre><code>cargo install cgmlst-dists-rs</code></pre>
+      <p class="small">Add <code>RUSTFLAGS="-C target-cpu=native"</code> for AVX-512.</p>
+    </div>
+    <div class="card">
+      <h3>From source</h3>
+      <pre><code>git clone https://github.com/genpat-it/cgmlst-dists-rs
+cd cgmlst-dists-rs
+RUSTFLAGS="-C target-cpu=native" \
+  cargo build --release</code></pre>
+    </div>
+  </div>
+</section>
+
+<section id="usage">
+  <h2>Usage</h2>
+<pre><code>cgmlst-dists -i chewbbaca.tab -o distances.tsv
+cgmlst-dists -i chewbbaca.tab -m lower-tri > dist.tsv
+cgmlst-dists -i chewbbaca.tab -o distances.tsv.gz     # parallel gzip
+
+docker run --rm -u "$(id -u):$(id -g)" -v "$(pwd):/data" \
+  ghcr.io/genpat-it/cgmlst-dists-rs -i /data/chewbbaca.tab -o /data/distances.tsv</code></pre>
+  <p>Distance = number of loci where the two alleles differ and <strong>both are present</strong>.
+  A leading <code>INF-</code> is stripped; chewBBACA classes (<code>LNF</code>, <code>PLOT3</code>,
+  <code>ASM</code>, …), <code>-</code>, empty and <code>0</code> are missing.
+  Full option list in the <a href="https://github.com/genpat-it/cgmlst-dists-rs#usage">README</a>.</p>
+</section>
+
+<section id="hashed">
+  <h2>chewBBACA hashed profiles</h2>
+  <p>Hashed profiles store CRC32 hashes as allele ids, up to 4&nbsp;294&nbsp;967&nbsp;295. Alleles
+  are read as 64-bit integers, so every hash is kept. Earlier releases (≤&nbsp;0.1.2) read alleles
+  as 32-bit signed integers and silently treated every hash above 2<sup>31</sup> as missing —
+  about half of the calls.</p>
+  <div class="tbl"><table>
+    <thead><tr><th>Listeria, Pasteur cgMLST (1748 loci), 2099 genomes</th>
+      <th class="num">≤ 0.1.2</th><th class="num">fixed</th></tr></thead>
+    <tbody>
+      <tr><td>ERR10109288 vs ERR10109289</td><td class="num">282</td><td class="num win">1196</td></tr>
+      <tr><td>ERR10109289 vs ERR10109291</td><td class="num">11</td><td class="num win">35</td></tr>
+      <tr><td>pairs matching an independent reference</td><td class="num">2&nbsp;526 / 2.2 M</td><td class="num win">all 2.2 M</td></tr>
+    </tbody>
+  </table></div>
+  <p class="note">The fix is on <code>main</code> and ships in the next release. On these data the
+  output is md5-identical to tseemann <code>cgmlst-dists</code> 0.6.0.</p>
+</section>
+
+<section id="benchmarks">
+  <h2>Benchmarks</h2>
+  <p>Full matrix, same output (md5-identical) from both tools. 80-core x86-64 with AVX-512;
+  tseemann <code>cgmlst-dists</code> 0.6.0 built with its Makefile (<code>-Ofast -fopenmp</code>),
+  run with <code>-j</code> set to the core count and <code>-x 100000</code> so it computes the same
+  thing. Best of three.</p>
+  <div class="tbl"><table>
+    <thead><tr><th>dataset</th><th>threads</th><th class="num">cgmlst-dists-rs</th>
+      <th class="num">tseemann (C)</th><th class="num">speed-up</th></tr></thead>
+    <tbody>
+      <tr><td>2 099 × 1 748 (real, hashed)</td><td>1</td><td class="num win">0.72 s</td><td class="num">13.2 s</td><td class="num">18×</td></tr>
+      <tr><td>2 099 × 1 748 (real, hashed)</td><td>80</td><td class="num win">0.06 s</td><td class="num">1.0 s</td><td class="num">16×</td></tr>
+      <tr><td>20 000 × 3 000 (synthetic)</td><td>80</td><td class="num win">5.2 s</td><td class="num">106 s</td><td class="num">20×</td></tr>
+    </tbody>
+  </table></div>
+  <p class="small">tseemann also cannot read the 6 785-locus wgMLST table from the same study:
+  its 100 000-character line buffer is shorter than the header.</p>
+</section>
+
+<section id="why">
+  <h2>Why it is fast</h2>
+  <ul>
+    <li><strong>SIMD kernel.</strong> The inner loop (<code>differ &amp;&amp; both present</code>) is
+    written so LLVM vectorizes it: 16 loci per AVX-512 instruction.</li>
+    <li><strong>Half the work.</strong> Only the upper triangle is computed and stored; the
+    output mirrors it.</li>
+    <li><strong>Parallel everywhere.</strong> Parsing, distances (rayon work stealing over the
+    triangular workload), row formatting and optional gzip all use every core.</li>
+  </ul>
+</section>
+
+<footer>
+  GPL-3.0-only · <a href="https://github.com/genpat-it">genpat-it</a> ·
+  Based on <a href="https://github.com/tseemann/cgmlst-dists">tseemann/cgmlst-dists</a>
+</footer>
+
+</div>
+</body>
+</html>
