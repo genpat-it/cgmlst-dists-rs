@@ -1,5 +1,16 @@
 # Changelog
 
+## [Unreleased]
+
+### Added
+- Optional GPU backend: build with `--features cuda`, run with `--gpu`
+  (`--gpu-device` picks the card). Output is byte-identical to the CPU path,
+  checked on the Listeria hashed and wgMLST tables with and without `-N`,
+  `-x` and `-m`. 50 000 x 5 000 on an NVIDIA L4: compute 70.9 s -> 5.6 s.
+  Default builds, crates.io, Bioconda and Docker stay CPU-only.
+- `--gpu-relu`: the same distance computed as a hand-wired ReLU network
+  (a demonstration, about 2x slower than `--gpu`).
+
 ## [0.1.4] - 2026-11-02
 
 ### Changed
