@@ -84,11 +84,6 @@ struct Args {
     #[arg(short = 'g', long, default_value_t = false)]
     gpu: bool,
 
-    /// With --gpu, compute each locus with a hand-wired ReLU network instead of
-    /// a comparison (a demonstration: identical output, ~2.3x slower)
-    #[arg(long, default_value_t = false, requires = "gpu")]
-    gpu_relu: bool,
-
     /// CUDA device index for --gpu
     #[arg(long, default_value_t = 0)]
     gpu_device: usize,
@@ -296,10 +291,10 @@ fn gpu_upper(calls: &[u32], n: usize, n_loci: usize, max_dist: i32, args: &Args)
         eprintln!("error: --gpu: CUDA device {} not available", args.gpu_device);
         std::process::exit(1);
     }
-    match gpu::upper_triangle(calls, n, n_loci, max_dist, args.gpu_device, args.gpu_stripe, args.gpu_relu) {
+    match gpu::upper_triangle(calls, n, n_loci, max_dist, args.gpu_device, args.gpu_stripe) {
         Ok((upper, secs)) => {
             if !args.silent {
-                eprintln!("GPU ({}) pipeline: {:.2}s", if args.gpu_relu { "ReLU network" } else { "compare" }, secs);
+                eprintln!("GPU pipeline: {:.2}s", secs);
             }
             upper
         }

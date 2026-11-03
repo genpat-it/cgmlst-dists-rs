@@ -49,7 +49,5 @@ fn listeria_hashed_profiles_gpu_identical() {
         return;
     }
     assert!(ok, "{err}");
-    let cpu = run(&[]).1;
-    assert_eq!(gpu, cpu);
-    assert_eq!(run(&["--gpu", "--gpu-relu"]).1, cpu);
+    assert_eq!(gpu, run(&[]).1);
 }

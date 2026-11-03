@@ -16,7 +16,7 @@ name = "cgmlst-dists"
 path = "src/main.rs"
 
 [features]
-# GPU backend: Hamming distance as a hand-wired ReLU network (needs nvcc, see build.rs)
+# GPU backend (needs nvcc, see build.rs)
 cuda = []
 
 [dependencies]

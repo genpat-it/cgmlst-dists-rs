@@ -1,24 +1,9 @@
-// Hamming distance on the GPU, with two interchangeable per-locus operations:
+// Hamming distance on the GPU: for each pair of samples, the number of loci
+// where [a != b && a != 0 && b != 0], on dense per-locus allele ranks
+// (0 = missing). Ranks are < 2^16, so every value is exact in fp32.
 //
-//  * compare (default, fastest): [a != b && a != 0 && b != 0];
-//  * relu (--gpu-relu, a demonstration): the same bit computed by a
-//    hand-wired ReLU network, ~2.3x slower because it costs more arithmetic.
-//
-// In the ReLU mode each locus pair (a, b) — dense per-locus allele ranks, 0 = missing — goes
-// through a fixed 3-layer ReLU network whose output is exactly
-// [a != b and a > 0 and b > 0]:
-//
-//   diff = relu(a-b) + relu(b-a) - relu(a-b-1) - relu(b-a-1)   = min(1, |a-b|)
-//   pa   = a - relu(a-1)                                         = min(1, a)
-//   pb   = b - relu(b-1)                                         = min(1, b)
-//   out  = relu(diff + pa + pb - 2)                              = AND of the three
-//
-// Exact for integers; ranks are < 2^16 so every value is exact in fp32. The
-// distance is the sum of `out` over loci. The kernel is tiled like a GEMM
-// (shared-memory tiles over loci, a TM x TN register block per thread) with
-// the multiply-add replaced by the network. pa/pb depend on one operand only,
-// so they are evaluated once per tile element instead of once per pair.
-// Both modes give identical results.
+// The kernel is tiled like a GEMM (shared-memory tiles over loci, a TM x TN
+// register block per thread) with the multiply-add replaced by the comparison.
 //
 // The matrix is produced in row stripes (only tiles on or above the diagonal),
 // double-buffered on two streams: while the host consumes stripe s, the GPU
@@ -36,9 +21,6 @@
 #define BM (THREADS_Y * TM)
 #define BN (THREADS_X * TN)
 
-__device__ __forceinline__ float relu(float z) { return fmaxf(z, 0.f); }
-
-template <bool RELU>
 __global__ void __launch_bounds__(THREADS_X * THREADS_Y)
 hamming_stripe(const uint16_t* __restrict__ X, int n, int L, int r0, int rows,
                     uint16_t* __restrict__ out) {
@@ -67,29 +49,16 @@ hamming_stripe(const uint16_t* __restrict__ X, int n, int L, int r0, int rows,
         __syncthreads();
 #pragma unroll
         for (int kk = 0; kk < BK; kk++) {
-            float a[TM], pa[TM], b[TN], pb[TN];
+            float a[TM], b[TN];
 #pragma unroll
-            for (int i = 0; i < TM; i++) {
-                a[i] = As[kk][ty + THREADS_Y * i];
-                pa[i] = RELU ? a[i] - relu(a[i] - 1.f) : 0.f;
-            }
+            for (int i = 0; i < TM; i++) a[i] = As[kk][ty + THREADS_Y * i];
 #pragma unroll
-            for (int j = 0; j < TN; j++) {
-                b[j] = Bs[kk][tx + THREADS_X * j];
-                pb[j] = RELU ? b[j] - relu(b[j] - 1.f) : 0.f;
-            }
+            for (int j = 0; j < TN; j++) b[j] = Bs[kk][tx + THREADS_X * j];
 #pragma unroll
             for (int i = 0; i < TM; i++)
 #pragma unroll
-                for (int j = 0; j < TN; j++) {
-                    if (RELU) {
-                        float d = a[i] - b[j];
-                        float diff = relu(d) + relu(-d) - relu(d - 1.f) - relu(-d - 1.f);
-                        acc[i][j] += relu(diff + pa[i] + pb[j] - 2.f);
-                    } else {
-                        acc[i][j] += (a[i] != b[j] && a[i] != 0.f && b[j] != 0.f) ? 1.f : 0.f;
-                    }
-                }
+                for (int j = 0; j < TN; j++)
+                    acc[i][j] += (a[i] != b[j] && a[i] != 0.f && b[j] != 0.f) ? 1.f : 0.f;
         }
         __syncthreads();
     }
@@ -125,8 +94,8 @@ extern "C" int rh_device_count(void) {
 
 // X: n x L row-major ranks. Calls cb(ctx, r0, rows, stripe) for every stripe in
 // order; stripe is rows x n (row-major), valid for columns >= the row index.
-// `stripe_rows` 0 = auto; `relu` != 0 selects the ReLU-network kernel. Returns 0 on success, writes the message into err.
-extern "C" int rh_run(const uint16_t* X, int n, int L, int device, int stripe_rows, int relu,
+// `stripe_rows` 0 = auto. Returns 0 on success, writes the message into err.
+extern "C" int rh_run(const uint16_t* X, int n, int L, int device, int stripe_rows,
                       rh_stripe_cb cb, void* ctx, double* kernel_secs, char* err, int errlen) {
     uint16_t* dX = NULL;
     uint16_t* dO[2] = {NULL, NULL};
@@ -162,10 +131,7 @@ extern "C" int rh_run(const uint16_t* X, int n, int L, int device, int stripe_ro
         if (s < ns) {
             int b = s & 1, r0 = s * S, rows = (n - r0 < S) ? n - r0 : S;
             dim3 grid((n + BN - 1) / BN, (rows + BM - 1) / BM), block(THREADS_X, THREADS_Y);
-            if (relu)
-                hamming_stripe<true><<<grid, block, 0, st[b]>>>(dX, n, L, r0, rows, dO[b]);
-            else
-                hamming_stripe<false><<<grid, block, 0, st[b]>>>(dX, n, L, r0, rows, dO[b]);
+            hamming_stripe<<<grid, block, 0, st[b]>>>(dX, n, L, r0, rows, dO[b]);
             CK(cudaGetLastError());
             CK(cudaMemcpyAsync(hO[b], dO[b], (size_t)rows * row_bytes, cudaMemcpyDeviceToHost, st[b]));
             CK(cudaEventRecord(done[b], st[b]));

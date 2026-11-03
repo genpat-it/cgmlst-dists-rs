@@ -168,24 +168,13 @@ cargo build --release --features cuda
 ./target/release/cgmlst-dists --gpu -i calls.tsv -o dists.tsv
 ```
 
-`--gpu-relu` swaps the per-locus comparison for a **hand-wired ReLU network**
-(no training, exact weights) computing the same bit — a demonstration that the
-distance can be expressed as a neural network, not a speed-up:
-
-```
-diff = relu(a-b) + relu(b-a) - relu(a-b-1) - relu(b-a-1)   # [a != b]
-pa   = a - relu(a-1),   pb = b - relu(b-1)                 # [a > 0], [b > 0]
-out  = relu(diff + pa + pb - 2)                            # AND  -> distance = sum over loci
-```
-
 | 50 000 × 5 000 (synthetic, hashed ids) | compute | total |
 |---|---:|---:|
 | CPU, 80 cores | 70.9 s | 76.1 s |
 | `--gpu`, NVIDIA L4 (< 700 MB VRAM) | **5.6 s** | **11.1 s** |
-| `--gpu --gpu-relu`, NVIDIA L4 | 12.3 s | 17.1 s |
 
 Total includes reading the input and formatting the 50 000 × 50 000 matrix
-(`-o /dev/null`); output md5-identical across the three. The L4 was shared with
+(`-o /dev/null`); output md5-identical. The L4 was shared with
 another process holding 21 GB of VRAM. On 20 000 × 3 000 compute drops from
 4.8 s to 0.9 s.
 
