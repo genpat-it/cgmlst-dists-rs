@@ -1,13 +1,20 @@
 # Changelog
 
-## [Unreleased]
+## [0.1.5] - 2026-11-12
 
 ### Added
-- Optional GPU backend: build with `--features cuda`, run with `--gpu`
-  (`--gpu-device` picks the card). Output is byte-identical to the CPU path,
-  checked on the Listeria hashed and wgMLST tables with and without `-N`,
-  `-x` and `-m`. 50 000 x 5 000 on an NVIDIA L4: compute 70.9 s -> 5.6 s.
-  Default builds, crates.io, Bioconda and Docker stay CPU-only.
+- Optional GPU backend: `--gpu` (`--gpu-device` picks the card). Output is
+  byte-identical to the CPU path, checked on the Listeria hashed and wgMLST
+  tables with and without `-N`, `-X` and `-m`. 50 000 x 5 000 on an NVIDIA L4:
+  compute 70.9 s -> 5.6 s. Below about 10 000 samples the CPU path is faster.
+- Docker image `ghcr.io/genpat-it/cgmlst-dists-rs:cuda` (and `:<version>-cuda`),
+  for `docker run --gpus all`. It needs only the NVIDIA driver.
+- `cargo install cgmlst-dists-rs --features cuda` builds the GPU backend (needs
+  nvcc). Default builds, Bioconda and the `latest` image stay CPU-only.
+
+### Changed
+- The CPU Docker image builds from `Cargo.lock` (`--locked`) and no longer
+  installs a C toolchain it does not need.
 
 ## [0.1.4] - 2026-11-02
 

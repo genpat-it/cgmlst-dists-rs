@@ -21,3 +21,28 @@ jobs:
         run: |
           printf 'FILE\tL1\tL2\tL3\nA\t1\t2\t3\nB\t1\t5\t3\nC\t4\t2\t3\n' > /tmp/in.tab
           ./target/release/cgmlst-dists -i /tmp/in.tab
+
+  cuda:
+    # No GPU on GitHub runners: this only proves the CUDA build compiles and
+    # that --gpu fails cleanly without a device. GPU results are checked locally.
+    runs-on: ubuntu-latest
+    container: nvidia/cuda:12.6.3-devel-ubuntu22.04
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - name: Install Rust
+        run: |
+          apt-get update && apt-get install -y --no-install-recommends curl ca-certificates
+          curl -sSf https://sh.rustup.rs | sh -s -- -y --profile minimal
+          echo "$HOME/.cargo/bin" >> "$GITHUB_PATH"
+      - name: Build and test (--features cuda)
+        env:
+          CUDA_ARCH: 75,80,86,89,90
+        run: |
+          cargo build --release --locked --features cuda
+          cargo test --release --locked --features cuda
+      - name: --gpu without a device fails cleanly
+        run: |
+          printf 'FILE\tL1\tL2\nA\t1\t2\nB\t1\t3\n' > /tmp/in.tab
+          ./target/release/cgmlst-dists -i /tmp/in.tab
+          if ./target/release/cgmlst-dists --gpu -i /tmp/in.tab 2>err.txt; then exit 1; fi
+          grep -q "not available" err.txt

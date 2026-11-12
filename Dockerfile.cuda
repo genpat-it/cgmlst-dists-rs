@@ -1,0 +1,24 @@
+# GPU image: run with `docker run --gpus all ... --gpu`. The CUDA runtime is
+# linked statically, so the final stage needs only the NVIDIA driver, which the
+# NVIDIA Container Toolkit mounts at run time.
+# ---- build stage ----
+FROM nvidia/cuda:12.6.3-devel-ubuntu22.04 AS build
+RUN apt-get update \
+ && apt-get install -y --no-install-recommends curl ca-certificates \
+ && rm -rf /var/lib/apt/lists/* \
+ && curl -sSf https://sh.rustup.rs | sh -s -- -y --profile minimal
+ENV PATH=/root/.cargo/bin:$PATH
+WORKDIR /src
+COPY Cargo.toml Cargo.lock build.rs ./
+COPY src ./src
+COPY cuda ./cuda
+# Turing (T4) to Hopper (H100), plus PTX for newer GPUs.
+ENV CUDA_ARCH=75,80,86,89,90
+RUN RUSTFLAGS="-C target-cpu=x86-64-v3" cargo build --release --locked --features cuda \
+ && cp target/release/cgmlst-dists /cgmlst-dists
+
+# ---- runtime stage ----
+FROM ubuntu:22.04
+ENV NVIDIA_VISIBLE_DEVICES=all NVIDIA_DRIVER_CAPABILITIES=compute,utility
+COPY --from=build /cgmlst-dists /usr/local/bin/cgmlst-dists
+ENTRYPOINT ["cgmlst-dists"]

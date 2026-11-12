@@ -94,6 +94,7 @@ cgmlst-dists -i in.tab -m lower-tri -o dist.tsv       # triangular
 | `-L, --locus-completeness` / `-S, --sample-completeness` | keep loci/samples with ≥ this % non-missing calls |
 | `-X, --max-dist` | stop counting beyond this distance (early-exit; 0 = no cap) |
 | `-f, --force` | skip the up-front memory feasibility check |
+| `-g, --gpu` / `--gpu-device` | compute on an NVIDIA GPU ([GPU backend](#gpu-backend-optional)) |
 | `-s, --silent` | suppress progress on stderr |
 
 ### Large outputs / slow Docker bind mounts
@@ -155,18 +156,31 @@ md5sum rs.tsv rs_hashed.tsv     # identical: same profiles, CRC32 ids
 
 ## GPU backend (optional)
 
-Built with `--features cuda` (needs `nvcc`; `CUDA_HOME` defaults to
-`/usr/local/cuda`, `CUDA_ARCH` to `native`), `--gpu` computes the matrix on an
-NVIDIA GPU. Allele ids are re-encoded as dense per-locus ranks first (equality
-is all the distance needs), so hashed CRC32 profiles stay exact. The kernel is
-tiled like a GEMM, runs in row stripes sized to the free VRAM (it shares a GPU
-fine) and overlaps the copy-back with the next stripe. Output is byte-identical
-to the CPU path.
+`--gpu` computes the matrix on an NVIDIA GPU. Allele ids are re-encoded as
+dense per-locus ranks first (equality is all the distance needs), so hashed
+CRC32 profiles stay exact. The kernel is tiled like a GEMM, runs in row stripes
+sized to the free VRAM (it shares a GPU fine) and overlaps the copy-back with
+the next stripe. Output is byte-identical to the CPU path. The GPU path handles
+up to 65 535 loci and 65 535 distinct alleles per locus.
+
+The default builds (crates.io without features, Bioconda, the `latest` Docker
+image) are CPU-only. To get `--gpu`:
 
 ```bash
-cargo build --release --features cuda
-./target/release/cgmlst-dists --gpu -i calls.tsv -o dists.tsv
+# Docker: CUDA runtime built in, needs only the NVIDIA driver and Container Toolkit
+docker run --rm --gpus all -u "$(id -u):$(id -g)" -v "$(pwd):/data" \
+  ghcr.io/genpat-it/cgmlst-dists-rs:cuda --gpu -i /data/calls.tsv -o /data/dists.tsv
+
+# crates.io or source: needs the CUDA toolkit (nvcc)
+cargo install cgmlst-dists-rs --features cuda
+cgmlst-dists --gpu -i calls.tsv -o dists.tsv
 ```
+
+`CUDA_HOME` (default `/usr/local/cuda`) locates the toolkit. `CUDA_ARCH`
+chooses the GPUs to compile for: `native` (default) or a list such as
+`75,80,86,89,90` (T4 to H100), as the Docker image uses. The CUDA runtime is
+linked statically, so the binary needs only the driver. `--gpu-device N` picks
+the card.
 
 | 50 000 × 5 000 (synthetic, hashed ids) | compute | total |
 |---|---:|---:|
